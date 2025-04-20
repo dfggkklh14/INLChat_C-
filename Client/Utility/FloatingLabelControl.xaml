@@ -1,0 +1,17 @@
+﻿<!-- Client.Utility/FloatingLabelControl.xaml -->
+<UserControl x:Class="Client.Utility.FloatingLabelControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="FloatingLabel">
+    <Border x:Name="LabelBorder"
+            Background="#FF000000"
+            CornerRadius="10"
+            Padding="10,5"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            Opacity="0">
+        <Label x:Name="MessageLabel"
+               Foreground="White"
+               Content="{Binding Message, ElementName=FloatingLabel}"/>
+    </Border>
+</UserControl>
