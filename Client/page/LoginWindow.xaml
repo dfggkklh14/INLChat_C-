@@ -8,7 +8,7 @@
         MinHeight="170" MaxHeight="170"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        Icon="pack://application:,,,/icon/icon.ico">
+        Icon="pack://application:,,,/icon/icon.png">
 
     <Window.Resources>
         <ResourceDictionary>

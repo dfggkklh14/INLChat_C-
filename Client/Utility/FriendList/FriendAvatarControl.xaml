@@ -1,0 +1,48 @@
+﻿<UserControl x:Class="Client.Utility.FriendList.FriendAvatarControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:Client.Utility.FriendList"
+             mc:Ignorable="d" 
+             d:DesignHeight="50" d:DesignWidth="50" Width="50" Height="50"
+             RenderOptions.BitmapScalingMode="HighQuality">
+    <UserControl.Resources>
+        <Storyboard x:Key="OnlineDotAnimation">
+            <DoubleAnimation Storyboard.TargetName="OnlineDot"
+                             Storyboard.TargetProperty="Width"
+                             From="0" To="15" Duration="0:0:0.3"/>
+            <DoubleAnimation Storyboard.TargetName="OnlineDot"
+                             Storyboard.TargetProperty="Height"
+                             From="0" To="15" Duration="0:0:0.3"/>
+        </Storyboard>
+        <Storyboard x:Key="OfflineDotAnimation">
+            <DoubleAnimation Storyboard.TargetName="OnlineDot"
+                             Storyboard.TargetProperty="Width"
+                             From="15" To="0" Duration="0:0:0.3"/>
+            <DoubleAnimation Storyboard.TargetName="OnlineDot"
+                             Storyboard.TargetProperty="Height"
+                             From="15" To="0" Duration="0:0:0.3"/>
+        </Storyboard>
+        <Storyboard x:Key="OnlineBorderAnimation">
+            <DoubleAnimation Storyboard.TargetName="BorderEllipse"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0" To="1" Duration="0:0:0.3"/>
+        </Storyboard>
+        <Storyboard x:Key="OfflineBorderAnimation">
+            <DoubleAnimation Storyboard.TargetName="BorderEllipse"
+                             Storyboard.TargetProperty="Opacity"
+                             From="1" To="0" Duration="0:0:0.3"/>
+        </Storyboard>
+    </UserControl.Resources>
+    <Grid>
+        <Ellipse x:Name="AvatarEllipse">
+            <Ellipse.Fill>
+                <ImageBrush x:Name="AvatarBrush" 
+                            Stretch="UniformToFill"/>
+            </Ellipse.Fill>
+        </Ellipse>
+        <Ellipse x:Name="BorderEllipse" Stroke="#35fc8d" StrokeThickness="2" Opacity="0"/>
+        <Ellipse x:Name="OnlineDot" Stroke="#FFFFFF" Width="0" Height="0" Fill="#35fc8d" StrokeThickness="2" Margin="34,34,1,1"/>
+    </Grid>
+</UserControl>

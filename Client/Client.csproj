@@ -7,63 +7,72 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
-		<RootNamespace>Client</RootNamespace>
 		<ApplicationIcon>icon\icon.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Content Include="icon\icon.ico" />
+	  <Compile Remove="Models\**" />
+	  <EmbeddedResource Remove="Models\**" />
+	  <None Remove="Models\**" />
+	  <Page Remove="Models\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Remove="icon\icon.ico" />
 	</ItemGroup>
 
 
 	<ItemGroup>
+	    <Resource Include="icon\icon.ico">
+	      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	    </Resource>
 	    <Resource Include="Utility\UtilityResources.xaml" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<Resource Include="icon\icon.ico">
+		<Resource Include="icon\icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\cma_icon_shallow.ico">
+		<Resource Include="icon\cma_icon_shallow.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\cma_icon_deep.ico">
+		<Resource Include="icon\cma_icon_deep.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\default_avatar.ico">
+		<Resource Include="icon\default_avatar.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\Add_Icon.ico">
+		<Resource Include="icon\Add_Icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\arrow_down.ico">
+		<Resource Include="icon\arrow_down.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\file_icon.ico">
+		<Resource Include="icon\file_icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\information_icon.ico">
+		<Resource Include="icon\information_icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\no_icon.ico">
+		<Resource Include="icon\no_icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\play_icon_deep.ico">
+		<Resource Include="icon\play_icon_deep.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\play_icon_shallow.ico">
+		<Resource Include="icon\play_icon_shallow.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\revise_icon_deep.ico">
+		<Resource Include="icon\revise_icon_deep.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\revise_icon_shallow.ico">
+		<Resource Include="icon\revise_icon_shallow.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\settings_icon.ico">
+		<Resource Include="icon\settings_icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
-		<Resource Include="icon\yes_icon.ico">
+		<Resource Include="icon\yes_icon.png">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Resource>
 	</ItemGroup>

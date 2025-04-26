@@ -1,9 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Windows;
-using Client.Function;
-using Client.Utility;
+﻿using Client.Function;
+using Client.Utility.FriendList;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Windows;
 
 namespace Client.page
 {
@@ -13,66 +12,32 @@ namespace Client.page
         private readonly Link _chatClient;
         private readonly ILogger<ChatWindow> _logger;
 
+        public Link ChatClient => _chatClient; // 用于 XAML 绑定
+
         public ChatWindow(App app, Link chatClient)
         {
-            _logger = app.LogFactory.CreateLogger<ChatWindow>();
+            _app = app ?? throw new ArgumentNullException(nameof(app));
+            _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+            if (_app.LogFactory == null)
+            {
+                throw new InvalidOperationException("App.LogFactory 未初始化");
+            }
+            _logger = _app.LogFactory.CreateLogger<ChatWindow>();
             _logger.LogDebug("ChatWindow 构造函数开始");
 
-            if (chatClient == null)
-            {
-                _logger.LogError("chatClient 参数为 null");
-                throw new ArgumentNullException(nameof(chatClient));
-            }
-
-            _app = app;
-            _chatClient = chatClient;
             InitializeComponent();
-            // 初始化 FriendListControl
-            if (FriendList == null)
-            {
-                FriendList = new FriendListControl(_chatClient, app.LogFactory);
-                _logger.LogDebug("FriendListControl 初始化完成");
-            }
-            _chatClient.FriendListUpdated += OnFriendListUpdated;
+
+            // 设置 DataContext 以支持 XAML 绑定
+            DataContext = this;
+
+            Loaded += ChatWindow_Loaded;
+
             _logger.LogDebug("ChatWindow 构造函数完成");
         }
 
-        private void OnFriendListUpdated(List<Dictionary<string, object>> friends)
+        private void ChatWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            Dispatcher.Invoke(() =>
-            {
-                if (friends == null)
-                {
-                    _logger.LogWarning("FriendListUpdated 收到 null 朋友列表");
-                    return;
-                }
-                _logger.LogInformation("收到 FriendListUpdated 事件，朋友列表长度: {0}", friends.Count);
-                foreach (var friend in friends)
-                {
-                    _logger.LogDebug("好友数据: username={0}, name={1}, online={2}, avatar_id={3}",
-                        friend.GetValueOrDefault("username")?.ToString() ?? "null",
-                        friend.GetValueOrDefault("name")?.ToString() ?? "null",
-                        friend.GetValueOrDefault("online")?.ToString() ?? "null",
-                        friend.GetValueOrDefault("avatar_id")?.ToString() ?? "null");
-                }
-                // 委托给 FriendListControl 更新好友列表
-                try
-                {
-                    FriendList.UpdateFriendList(friends);
-                    _logger.LogDebug("已调用 FriendList.UpdateFriendList");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"调用 FriendList.UpdateFriendList 失败: {ex.Message}\nStackTrace: {ex.StackTrace}");
-                }
-            });
-        }
-
-        private void FriendList_FriendSelected(object sender, string username)
-        {
-            _logger.LogInformation("选择好友: {0}", username);
-            // TODO: 实现好友选择逻辑，例如显示聊天记录
-            MessageBox.Show($"Selected friend: {username}", "Friend Selected", MessageBoxButton.OK, MessageBoxImage.Information);
+            _logger.LogDebug("ChatWindow_Loaded 执行");
         }
 
         public async void Logout()
@@ -97,8 +62,7 @@ namespace Client.page
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             _logger.LogDebug("ChatWindow 关闭");
-            _chatClient.FriendListUpdated -= OnFriendListUpdated;
-            e.Cancel = true; // 取消关闭，隐藏窗口
+            e.Cancel = true;
             Hide();
             base.OnClosing(e);
         }

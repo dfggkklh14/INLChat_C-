@@ -83,8 +83,20 @@ namespace Client.page
                     await Dispatcher.InvokeAsync(() =>
                     {
                         _app.ShowChatWindow();
-                        _logger.LogDebug("关闭 LoginWindow");
-                        Close();
+                        _logger.LogDebug("准备关闭 LoginWindow");
+                        // 延迟关闭以确保 ChatWindow 和 FriendListControl 初始化完成
+                        Dispatcher.InvokeAsync(() =>
+                        {
+                            try
+                            {
+                                Close();
+                                _logger.LogDebug("LoginWindow 已关闭");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError($"关闭 LoginWindow 失败: {ex.Message}\nStackTrace: {ex.StackTrace}");
+                            }
+                        }, System.Windows.Threading.DispatcherPriority.Background);
                     });
                 }
                 else
@@ -97,7 +109,7 @@ namespace Client.page
             }
             catch (Exception ex)
             {
-                _logger.LogError($"认证过程中发生异常: {ex}");
+                _logger.LogError($"认证过程中发生异常: {ex.Message}\nStackTrace: {ex.StackTrace}");
                 await Dispatcher.InvokeAsync(() =>
                 {
                     System.Windows.MessageBox.Show($"登录失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -115,19 +127,16 @@ namespace Client.page
 
         private async void Register_label_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            // 防止快速重复点击
             register_label.IsEnabled = false;
             try
             {
                 _logger.LogDebug("点击注册按钮，尝试关闭现有连接");
-                // 在后台执行 CloseConnection，不等待
                 Task.Run(async () =>
                 {
                     await _chatClient.CloseConnection();
                     _logger.LogDebug("现有连接已成功关闭");
                 });
 
-                // 立即显示 RegisterWindow
                 await Dispatcher.InvokeAsync(() =>
                 {
                     try
@@ -138,14 +147,14 @@ namespace Client.page
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError($"显示 RegisterWindow 失败：{ex.Message}\n堆栈跟踪：{ex.StackTrace}");
+                        _logger.LogError($"显示 RegisterWindow 失败: {ex.Message}\nStackTrace: {ex.StackTrace}");
                         System.Windows.MessageBox.Show("无法打开注册窗口，请重试", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError($"关闭连接时出错：{ex.Message}\n堆栈跟踪：{ex.StackTrace}");
+                _logger.LogError($"关闭连接时出错: {ex.Message}\nStackTrace: {ex.StackTrace}");
                 await Dispatcher.InvokeAsync(() =>
                 {
                     System.Windows.MessageBox.Show("连接清理失败，请重试", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -153,7 +162,6 @@ namespace Client.page
             }
             finally
             {
-                // 恢复按钮可用性
                 await Dispatcher.InvokeAsync(() =>
                 {
                     register_label.IsEnabled = true;

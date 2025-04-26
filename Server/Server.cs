@@ -1,24 +1,28 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using ImageMagick;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using MySql.Data.MySqlClient;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using System.Security.Cryptography;
-using System.Drawing;
-using System.Drawing.Imaging;
-using ImageMagick;
-using System.Runtime.InteropServices;
 
 
 namespace Server
@@ -127,8 +131,13 @@ namespace Server
             // 配置日志
             var factory = LoggerFactory.Create(builder =>
             {
-                builder.AddConsole();
-                builder.SetMinimumLevel(LogLevel.Debug);
+                builder.AddConsole(options =>
+                {
+                    // 启用自定义格式，包含时间戳
+                    options.FormatterName = "customFormatter";
+                })
+                .AddConsoleFormatter<CustomConsoleFormatter, ConsoleFormatterOptions>()
+                .SetMinimumLevel(LogLevel.Debug);
             });
             _logger = factory.CreateLogger<Server>();
             _userRegister = new UserRegister(factory.CreateLogger<UserRegister>());
@@ -153,6 +162,28 @@ namespace Server
             _aes.Key = _encryptionKey;
             _aes.Mode = CipherMode.CBC;
             _aes.Padding = PaddingMode.PKCS7;
+        }
+
+        public class CustomConsoleFormatter : ConsoleFormatter
+        {
+            private readonly ConsoleFormatterOptions _options;
+
+            public CustomConsoleFormatter(IOptions<ConsoleFormatterOptions> options)
+                : base("customFormatter")
+            {
+                _options = options.Value;
+            }
+
+            public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider scopeProvider, TextWriter textWriter)
+            {
+                var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                var logLevel = logEntry.LogLevel.ToString().ToUpper();
+                var category = logEntry.Category;
+                var message = logEntry.Formatter(logEntry.State, logEntry.Exception);
+                var exception = logEntry.Exception != null ? $"\nException: {logEntry.Exception}" : string.Empty;
+
+                textWriter.WriteLine($"[{timestamp}] {logLevel} {category}: {message}{exception}");
+            }
         }
 
         private MySqlConnection GetDbConnection()
@@ -348,10 +379,9 @@ namespace Server
             {
                 _logger.LogDebug($"发送响应给客户端 {((IPEndPoint)clientSock.RemoteEndPoint).Address}:{((IPEndPoint)clientSock.RemoteEndPoint).Port}");
                 // 使用 UTF-8 编码序列化 JSON
-                var plaintext = JsonSerializer.Serialize(response, new JsonSerializerOptions
+                var plaintext = JsonConvert.SerializeObject(response, new JsonSerializerSettings
                 {
-                    WriteIndented = false,
-                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping // 可选，确保特殊字符正确处理
+                    StringEscapeHandling = StringEscapeHandling.Default
                 });
                 var plaintextBytes = Encoding.UTF8.GetBytes(plaintext); // 明确使用 UTF-8 编码
 
@@ -548,48 +578,48 @@ namespace Server
         }
 
         private List<Dictionary<string, object>> BuildFriendItem(string username, List<string> friendUsernames = null, MySqlConnection conn = null)
-{
-    bool standaloneConn = conn == null;
-    if (standaloneConn)
-    {
-        conn = GetDbConnection();
-        if (conn == null)
         {
-            _logger.LogError("数据库连接失败，无法构建好友信息");
-            return new List<Dictionary<string, object>>();
-        }
-    }
+            bool standaloneConn = conn == null;
+            if (standaloneConn)
+            {
+                conn = GetDbConnection();
+                if (conn == null)
+                {
+                    _logger.LogError("数据库连接失败，无法构建好友信息");
+                    return new List<Dictionary<string, object>>();
+                }
+            }
 
-    try
-    {
-        if (friendUsernames == null)
-        {
-            using var friendCmd = new MySqlCommand("SELECT friend FROM friends WHERE username = @username", conn);
-            friendCmd.Parameters.AddWithValue("@username", username);
-            using var friendReader = friendCmd.ExecuteReader();
-            friendUsernames = new List<string>();
-            while (friendReader.Read())
-                friendUsernames.Add(friendReader.GetString("friend"));
-            friendReader.Close();
-        }
+            try
+            {
+                if (friendUsernames == null)
+                {
+                    using var friendCmd = new MySqlCommand("SELECT friend FROM friends WHERE username = @username", conn);
+                    friendCmd.Parameters.AddWithValue("@username", username);
+                    using var friendReader = friendCmd.ExecuteReader();
+                    friendUsernames = new List<string>();
+                    while (friendReader.Read())
+                        friendUsernames.Add(friendReader.GetString("friend"));
+                    friendReader.Close();
+                }
 
-        if (!friendUsernames.Any())
-            return new List<Dictionary<string, object>>();
+                if (!friendUsernames.Any())
+                    return new List<Dictionary<string, object>>();
 
-        var placeholders = string.Join(",", Enumerable.Repeat("?", friendUsernames.Count));
-        var query = $@"SELECT f.friend, f.Remarks, u.avatars, u.names, u.signs 
+                var placeholders = string.Join(",", Enumerable.Repeat("?", friendUsernames.Count));
+                var query = $@"SELECT f.friend, f.Remarks, u.avatars, u.names, u.signs 
                       FROM friends f 
                       LEFT JOIN users u ON f.friend = u.username 
                       WHERE f.username = ? AND f.friend IN ({placeholders})";
-        using var dataCmd = new MySqlCommand(query, conn);
-        dataCmd.Parameters.AddWithValue("p0", username);
-        for (int i = 0; i < friendUsernames.Count; i++)
-            dataCmd.Parameters.AddWithValue($"p{i + 1}", friendUsernames[i]);
-        using var dataReader = dataCmd.ExecuteReader();
-        var friendData = new Dictionary<string, Dictionary<string, object>>();
-        while (dataReader.Read())
-        {
-            friendData[dataReader.GetString("friend")] = new Dictionary<string, object>
+                using var dataCmd = new MySqlCommand(query, conn);
+                dataCmd.Parameters.AddWithValue("p0", username);
+                for (int i = 0; i < friendUsernames.Count; i++)
+                    dataCmd.Parameters.AddWithValue($"p{i + 1}", friendUsernames[i]);
+                using var dataReader = dataCmd.ExecuteReader();
+                var friendData = new Dictionary<string, Dictionary<string, object>>();
+                while (dataReader.Read())
+                {
+                    friendData[dataReader.GetString("friend")] = new Dictionary<string, object>
             {
                 { "friend", dataReader.GetString("friend") },
                 { "Remarks", dataReader.IsDBNull(dataReader.GetOrdinal("Remarks")) ? null : dataReader.GetString("Remarks") },
@@ -597,39 +627,40 @@ namespace Server
                 { "names", dataReader.IsDBNull(dataReader.GetOrdinal("names")) ? null : dataReader.GetString("names") },
                 { "signs", dataReader.IsDBNull(dataReader.GetOrdinal("signs")) ? null : dataReader.GetString("signs") }
             };
-        }
-        dataReader.Close();
+                }
+                dataReader.Close();
 
-        var result = new List<Dictionary<string, object>>();
-        lock (_conversationsLock)
-        {
-            foreach (var friendUsername in friendUsernames)
-            {
-                if (!friendData.ContainsKey(friendUsername))
-                    continue; // 跳过无数据的用户
-
-                var friendInfo = friendData[friendUsername];
-                var remarks = friendInfo["Remarks"]?.ToString();
-                var avatarId = friendInfo["avatars"]?.ToString() ?? "";
-                var name = friendInfo["names"]?.ToString() ?? friendUsername;
-                var sign = friendInfo["signs"]?.ToString() ?? "";
-                var displayName = remarks ?? name;
-
-                Dictionary<string, object> lastMessageData = null;
-                var sortedKey = (username.CompareTo(friendUsername) < 0) ? (username, friendUsername) : (friendUsername, username);
-                if (_conversations.TryGetValue(sortedKey, out var convoData) && convoData.LastMessage != null)
+                var result = new List<Dictionary<string, object>>();
+                lock (_conversationsLock)
                 {
-                    var lastMessage = convoData.LastMessage;
-                    var content = GetConversationContent(lastMessage.AttachmentType, lastMessage.Message);
-                    lastMessageData = new Dictionary<string, object>
+                    foreach (var friendUsername in friendUsernames)
+                    {
+                        if (!friendData.ContainsKey(friendUsername))
+                            continue; // 跳过无数据的用户
+
+                        var friendInfo = friendData[friendUsername];
+                        var remarks = friendInfo["Remarks"]?.ToString();
+                        var avatarId = friendInfo["avatars"]?.ToString() ?? "";
+                        var userName = friendInfo["names"]?.ToString();
+                        var sign = friendInfo["signs"]?.ToString() ?? "";
+                        // 优先使用 Remarks，若为空则使用 names，若 names 也为空则使用 friendUsername
+                        var displayName = !string.IsNullOrEmpty(remarks) ? remarks : !string.IsNullOrEmpty(userName) ? userName : friendUsername;
+
+                        Dictionary<string, object> lastMessageData = null;
+                        var sortedKey = (username.CompareTo(friendUsername) < 0) ? (username, friendUsername) : (friendUsername, username);
+                        if (_conversations.TryGetValue(sortedKey, out var convoData) && convoData.LastMessage != null)
+                        {
+                            var lastMessage = convoData.LastMessage;
+                            var content = GetConversationContent(lastMessage.AttachmentType, lastMessage.Message);
+                            lastMessageData = new Dictionary<string, object>
                     {
                         { "sender", lastMessage.Sender },
                         { "content", content },
                         { "last_update_time", convoData.LastUpdateTime.ToString("yyyy-MM-dd HH:mm:ss") }
                     };
-                }
+                        }
 
-                result.Add(new Dictionary<string, object>
+                        result.Add(new Dictionary<string, object>
                 {
                     { "username", friendUsername },
                     { "avatar_id", avatarId },
@@ -638,21 +669,21 @@ namespace Server
                     { "online", _clients.ContainsKey(friendUsername) },
                     { "conversations", lastMessageData }
                 });
+                    }
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"构建好友信息失败: {ex.Message}");
+                return new List<Dictionary<string, object>>();
+            }
+            finally
+            {
+                if (standaloneConn)
+                    conn?.Dispose();
             }
         }
-        return result;
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError($"构建好友信息失败: {ex.Message}");
-        return new List<Dictionary<string, object>>();
-    }
-    finally
-    {
-        if (standaloneConn)
-            conn?.Dispose();
-    }
-}
 
         private List<string> GetFriendUsernames(string username, bool includeSelf = false)
         {
@@ -705,7 +736,7 @@ namespace Server
                 { "friends", friends }
             };
                     SendResponse(client, response);
-                    _logger.LogDebug($"推送好友列表给 {username}: {JsonSerializer.Serialize(response)}");
+                    _logger.LogDebug($"推送好友列表给 {username}: {JsonConvert.SerializeObject(response)}");
                 }
             }
         }
@@ -729,7 +760,7 @@ namespace Server
                         { "friend", friendItem }
                     };
                             SendResponse(client, response);
-                            _logger.LogDebug($"推送单个好友更新给 {username}: {JsonSerializer.Serialize(response)}");
+                            _logger.LogDebug($"推送单个好友更新给 {username}: {JsonConvert.SerializeObject(response)}");
                         }
                     }
                 }
@@ -753,7 +784,7 @@ namespace Server
                         { "friend", friendItem }
                     };
                             SendResponse(client, response);
-                            _logger.LogDebug($"推送单个好友更新给相关用户 {user}: {JsonSerializer.Serialize(response)}");
+                            _logger.LogDebug($"推送单个好友更新给相关用户 {user}: {JsonConvert.SerializeObject(response)}");
                         }
                     }
                 }
@@ -820,8 +851,8 @@ namespace Server
             {
                 var replyPreviewData = GenerateReplyPreview(replyTo.Value);
                 replyPreview = replyPreviewData != null
-                    ? JsonSerializer.Serialize(replyPreviewData, new JsonSerializerOptions { WriteIndented = false })
-                    : JsonSerializer.Serialize(new { sender = "未知用户", content = "消息不可用" });
+                    ? JsonConvert.SerializeObject(replyPreviewData)
+                    : JsonConvert.SerializeObject(new { sender = "未知用户", content = "消息不可用" });
             }
 
             using var conn = GetDbConnection();
@@ -898,7 +929,7 @@ namespace Server
 
         private Dictionary<string, object> SendMedia(Dictionary<string, object> request, Socket clientSock)
         {
-            _logger.LogDebug($"收到 send_media 请求: {JsonSerializer.Serialize(request)}");
+            _logger.LogDebug($"收到 send_media 请求: {JsonConvert.SerializeObject(request)}");
             var fromUser = request["from"]?.ToString();
             var toUser = request["to"]?.ToString();
             var originalFileName = request["file_name"]?.ToString();
@@ -1030,8 +1061,8 @@ namespace Server
                 {
                     var replyPreviewData = GenerateReplyPreview(replyTo.Value);
                     replyPreview = replyPreviewData != null
-                        ? JsonSerializer.Serialize(replyPreviewData, new JsonSerializerOptions { WriteIndented = false })
-                        : JsonSerializer.Serialize(new { sender = "未知用户", content = "消息不可用" });
+                        ? JsonConvert.SerializeObject(replyPreviewData)
+                        : JsonConvert.SerializeObject(new { sender = "未知用户", content = "消息不可用" });
                 }
 
                 using var conn = GetDbConnection();
@@ -1142,9 +1173,19 @@ namespace Server
         private Dictionary<string, object> DeleteMessages(Dictionary<string, object> request, Socket clientSock)
         {
             var username = request["username"]?.ToString();
-            var rowIds = request.ContainsKey("rowids") && request["rowids"] is JsonElement rowIdsElement && rowIdsElement.ValueKind == JsonValueKind.Array
-                ? rowIdsElement.EnumerateArray().Select(e => e.GetInt64()).ToList()
-                : request.ContainsKey("rowid") && request["rowid"] != null ? new List<long> { Convert.ToInt64(request["rowid"]) } : new List<long>();
+
+            // 使用JArray来处理rowids
+            var rowIds = new List<long>();
+
+            if (request.ContainsKey("rowids") && request["rowids"] is JArray array)
+            {
+                rowIds = array.Select(t => t.Value<long>()).ToList();
+            }
+            else if (request.ContainsKey("rowid") && request["rowid"] != null)
+            {
+                rowIds.Add(Convert.ToInt64(request["rowid"]));
+            }
+
             var requestId = request["request_id"]?.ToString();
 
             if (!rowIds.Any())
@@ -1167,11 +1208,11 @@ namespace Server
                 {
                     while (reader.Read())
                         messagesToDelete.Add(new Dictionary<string, object>
-                        {
-                            { "id", reader.GetInt64("id") },
-                            { "sender", reader.GetString("sender") },
-                            { "receiver", reader.GetString("receiver") }
-                        });
+                {
+                    { "id", reader.GetInt64("id") },
+                    { "sender", reader.GetString("sender") },
+                    { "receiver", reader.GetString("receiver") }
+                });
                 }
 
                 if (!messagesToDelete.Any())
@@ -1199,10 +1240,10 @@ namespace Server
                 {
                     cmd.Parameters.Clear();
                     cmd.CommandText = @"
-                        SELECT id, sender, receiver, message, write_time, attachment_type, original_file_name, 
-                               reply_to, reply_preview FROM messages 
-                        WHERE (sender = @user1 AND receiver = @user2) OR (sender = @user2 AND receiver = @user1) 
-                        ORDER BY write_time DESC LIMIT 1";
+                SELECT id, sender, receiver, message, write_time, attachment_type, original_file_name, 
+                       reply_to, reply_preview FROM messages 
+                WHERE (sender = @user1 AND receiver = @user2) OR (sender = @user2 AND receiver = @user1) 
+                ORDER BY write_time DESC LIMIT 1";
                     cmd.Parameters.AddWithValue("@user1", user1);
                     cmd.Parameters.AddWithValue("@user2", user2);
                     MessageData lastMessage = null;
@@ -1248,9 +1289,9 @@ namespace Server
                         }
                         cmd.Parameters.Clear();
                         cmd.CommandText = @"
-                            INSERT INTO conversations (username, friend, lastmessageid, lastupdatetime)
-                            VALUES (@username, @friend, NULL, @lastupdatetime)
-                            ON DUPLICATE KEY UPDATE lastmessageid = NULL, lastupdatetime = @lastupdatetime";
+                    INSERT INTO conversations (username, friend, lastmessageid, lastupdatetime)
+                    VALUES (@username, @friend, NULL, @lastupdatetime)
+                    ON DUPLICATE KEY UPDATE lastmessageid = NULL, lastupdatetime = @lastupdatetime";
                         cmd.Parameters.AddWithValue("@username", user1);
                         cmd.Parameters.AddWithValue("@friend", user2);
                         cmd.Parameters.AddWithValue("@lastupdatetime", writeTime);
@@ -1259,15 +1300,15 @@ namespace Server
 
                     var otherUser = user1 == username ? user2 : user1;
                     var pushPayload = new Dictionary<string, object>
-                    {
-                        { "type", "deleted_messages" },
-                        { "from", username },
-                        { "to", otherUser },
-                        { "deleted_rowids", messagesToDelete.Select(m => m["id"]).ToList() },
-                        { "conversations", conversationsContent },
-                        { "write_time", writeTime },
-                        { "show_floating_label", false }
-                    };
+            {
+                { "type", "deleted_messages" },
+                { "from", username },
+                { "to", otherUser },
+                { "deleted_rowids", messagesToDelete.Select(m => m["id"]).ToList() },
+                { "conversations", conversationsContent },
+                { "write_time", writeTime },
+                { "show_floating_label", false }
+            };
                     lock (_clientsLock)
                     {
                         if (_clients.TryGetValue(otherUser, out var client) && otherUser != username)
@@ -1276,17 +1317,17 @@ namespace Server
                 }
 
                 var returnData = new Dictionary<string, object>
-                {
-                    { "type", "messages_deleted" },
-                    { "status", "success" },
-                    { "request_id", requestId },
-                    { "to", username },
-                    { "deleted_rowids", messagesToDelete.Select(m => m["id"]).ToList() },
-                    { "conversations", conversationsContent },
-                    { "write_time", writeTime },
-                    { "show_floating_label", true }
-                };
-                _logger.LogDebug($"delete_message返回: {JsonSerializer.Serialize(returnData)}");
+        {
+            { "type", "messages_deleted" },
+            { "status", "success" },
+            { "request_id", requestId },
+            { "to", username },
+            { "deleted_rowids", messagesToDelete.Select(m => m["id"]).ToList() },
+            { "conversations", conversationsContent },
+            { "write_time", writeTime },
+            { "show_floating_label", true }
+        };
+                _logger.LogDebug($"delete_message返回: {JsonConvert.SerializeObject(returnData)}");
                 return returnData;
             }
             catch (Exception ex)
@@ -1352,18 +1393,46 @@ namespace Server
             }
         }
 
-        private Dictionary<string, object> GetChatHistoryPaginated(Dictionary<string, object> request, Socket clientSock)
+        private Dictionary<string, object> GetChatHistoryPaginated(Dictionary<string, object> rawRequest, Socket clientSock)
         {
-            var username = request["username"]?.ToString();
-            var friend = request["friend"]?.ToString();
-            var page = request.ContainsKey("page") ? Convert.ToInt32(request["page"]) : 1;
-            var pageSize = request.ContainsKey("page_size") ? Convert.ToInt32(request["page_size"]) : 20;
-            var requestId = request["request_id"]?.ToString();
+            RequestModel.ChatHistory request;
+            try
+            {
+                var json = JsonConvert.SerializeObject(rawRequest);
+                request = JsonConvert.DeserializeObject<RequestModel.ChatHistory>(json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"请求反序列化失败: {ex.Message}");
+                var resp = new Dictionary<string, object>
+        {
+            { "type", "chat_history" },
+            { "status", "error" },
+            { "message", "请求格式错误" },
+            { "chat_history", new List<object>() },
+            { "request_id", rawRequest["request_id"]?.ToString() }
+        };
+                SendResponse(clientSock, resp);
+                return resp;
+            }
+
+            var username = request.Username;
+            var friend = request.Friend;
+            var page = request.Page;
+            var pageSize = request.PageSize;
+            var requestId = request.RequestId;
 
             using var conn = GetDbConnection();
             if (conn == null)
             {
-                var resp = new Dictionary<string, object> { { "type", "chat_history" }, { "status", "error" }, { "message", "数据库连接失败" }, { "chat_history", new List<object>() }, { "request_id", requestId } };
+                var resp = new Dictionary<string, object>
+        {
+            { "type", "chat_history" },
+            { "status", "error" },
+            { "message", "数据库连接失败" },
+            { "chat_history", new List<object>() },
+            { "request_id", requestId }
+        };
                 SendResponse(clientSock, resp);
                 return resp;
             }
@@ -1372,12 +1441,12 @@ namespace Server
             {
                 var offset = (page - 1) * pageSize;
                 using var cmd = new MySqlCommand(@"
-                    SELECT id AS rowid, write_time, sender, receiver, message, attachment_type, attachment_path, 
-                           original_file_name, thumbnail_path, file_size, duration, reply_to, reply_preview, file_id
-                    FROM messages
-                    WHERE (sender = @username AND receiver = @friend) OR (sender = @friend AND receiver = @username)
-                    ORDER BY write_time DESC, id DESC
-                    LIMIT @pageSize OFFSET @offset", conn);
+            SELECT id AS rowid, write_time, sender, receiver, message, attachment_type, attachment_path, 
+                   original_file_name, thumbnail_path, file_size, duration, reply_to, reply_preview, file_id
+            FROM messages
+            WHERE (sender = @username AND receiver = @friend) OR (sender = @friend AND receiver = @username)
+            ORDER BY write_time DESC, id DESC
+            LIMIT @pageSize OFFSET @offset", conn);
                 cmd.Parameters.AddWithValue("@username", username);
                 cmd.Parameters.AddWithValue("@friend", friend);
                 cmd.Parameters.AddWithValue("@pageSize", pageSize);
@@ -1387,15 +1456,15 @@ namespace Server
                 while (reader.Read())
                 {
                     var record = new Dictionary<string, object>
-                    {
-                        { "rowid", reader.GetInt64("rowid") },
-                        { "write_time", reader.GetDateTime("write_time").ToString("yyyy-MM-dd HH:mm:ss") },
-                        { "username", reader.GetString("sender") },
-                        { "friend_username", reader.GetString("receiver") },
-                        { "message", reader.IsDBNull(reader.GetOrdinal("message")) ? null : reader.GetString("message") },
-                        { "reply_to", reader.IsDBNull(reader.GetOrdinal("reply_to")) ? null : reader.GetInt64("reply_to") },
-                        { "reply_preview", reader.IsDBNull(reader.GetOrdinal("reply_preview")) ? null : reader.GetString("reply_preview") }
-                    };
+            {
+                { "rowid", reader.GetInt64("rowid") },
+                { "write_time", reader.GetDateTime("write_time").ToString("yyyy-MM-dd HH:mm:ss") },
+                { "username", reader.GetString("sender") },
+                { "friend_username", reader.GetString("receiver") },
+                { "message", reader.IsDBNull(reader.GetOrdinal("message")) ? null : reader.GetString("message") },
+                { "reply_to", reader.IsDBNull(reader.GetOrdinal("reply_to")) ? null : reader.GetInt64("reply_to") },
+                { "reply_preview", reader.IsDBNull(reader.GetOrdinal("reply_preview")) ? null : reader.GetString("reply_preview") }
+            };
                     if (!reader.IsDBNull(reader.GetOrdinal("attachment_type")))
                     {
                         record["attachment_type"] = reader.GetString("attachment_type");
@@ -1407,19 +1476,26 @@ namespace Server
                     history.Add(record);
                 }
                 var resp = new Dictionary<string, object>
-                {
-                    { "type", "chat_history" },
-                    { "status", "success" },
-                    { "chat_history", history },
-                    { "request_id", requestId }
-                };
+        {
+            { "type", "chat_history" },
+            { "status", "success" },
+            { "chat_history", history },
+            { "request_id", requestId }
+        };
                 SendResponse(clientSock, resp);
                 return resp;
             }
             catch (Exception ex)
             {
                 _logger.LogError($"查询聊天记录失败: {ex.Message}");
-                var resp = new Dictionary<string, object> { { "type", "chat_history" }, { "status", "error" }, { "message", "查询失败" }, { "chat_history", new List<object>() }, { "request_id", requestId } };
+                var resp = new Dictionary<string, object>
+        {
+            { "type", "chat_history" },
+            { "status", "error" },
+            { "message", "查询失败" },
+            { "chat_history", new List<object>() },
+            { "request_id", requestId }
+        };
                 SendResponse(clientSock, resp);
                 return resp;
             }
@@ -1523,13 +1599,17 @@ namespace Server
                         using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
                         using var sr = new StreamReader(cs);
                         var decryptedData = sr.ReadToEnd();
-                        request = JsonSerializer.Deserialize<Dictionary<string, object>>(decryptedData);
-                        _logger.LogDebug($"收到请求：{JsonSerializer.Serialize(request)}");
+                        request = JsonConvert.DeserializeObject<Dictionary<string, object>>(decryptedData);
+                        _logger.LogDebug($"收到请求：{JsonConvert.SerializeObject(request)}");
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError($"数据解密或JSON解析错误：{ex.Message}");
-                        SendResponse(clientSock, new Dictionary<string, object> { { "status", "error" }, { "message", "请求格式错误" } });
+                        SendResponse(clientSock, new Dictionary<string, object>
+                {
+                    { "status", "error" },
+                    { "message", "请求格式错误" }
+                });
                         continue;
                     }
 
@@ -1546,7 +1626,7 @@ namespace Server
                         if (response.ContainsKey("subtype") && response["subtype"]?.ToString() == "register_3" &&
                             response.ContainsKey("status") && response["status"]?.ToString() == "success")
                         {
-                            isRegistering = false; 
+                            isRegistering = false;
                         }
                     }
                     // 处理认证请求
@@ -1573,70 +1653,35 @@ namespace Server
                         Exit(request, clientSock, loggedInUser);
                         break; // 客户端主动请求退出，断开连接
                     }
-                    // 处理其他请求
-                    else if (loggedInUser == null && isRegistering)
+                    // 注册流程中只允许 user_register 请求
+                    else if (isRegistering)
                     {
-                        // 处于注册流程中，允许非认证请求继续
-                        switch (reqType)
-                        {
-                            case "get_user_info":
-                                response = GetUserInfo(request, clientSock);
-                                break;
-                            case "upload_avatar":
-                            case "update_sign":
-                            case "update_name":
-                                response = UpdateUserProfile(request, clientSock);
-                                break;
-                            case "Update_Remarks":
-                                response = UpdateFriendRemarks(request, clientSock);
-                                break;
-                            case "add_friend":
-                                response = AddFriend(request, clientSock);
-                                break;
-                            case "send_message":
-                                response = SendMessage(request, clientSock);
-                                break;
-                            case "send_media":
-                                response = SendMedia(request, clientSock);
-                                break;
-                            case "download_media":
-                                DownloadMedia(request, clientSock);
-                                continue;
-                            case "get_chat_history_paginated":
-                                GetChatHistoryPaginated(request, clientSock);
-                                continue;
-                            case "delete_messages":
-                                response = DeleteMessages(request, clientSock);
-                                break;
-                            default:
-                                response = new Dictionary<string, object>
+                        response = new Dictionary<string, object>
                         {
                             { "type", reqType },
                             { "status", "error" },
-                            { "message", "未知的请求类型" },
+                            { "message", "注册流程中仅允许 user_register 请求" },
                             { "request_id", request["request_id"]?.ToString() }
                         };
-                                break;
-                        }
-                        if (response != null)
-                            SendResponse(clientSock, response);
+                        _logger.LogWarning($"注册流程中收到非法请求: type={reqType}, client={clientAddr.ip}:{clientAddr.port}");
+                        SendResponse(clientSock, response);
                     }
+                    // 未登录且不在注册流程中
                     else if (loggedInUser == null)
                     {
-                        // 未登录且不在注册流程中，拒绝非认证请求
                         response = new Dictionary<string, object>
-                {
-                    { "type", reqType },
-                    { "status", "error" },
-                    { "message", "请先登录" },
-                    { "request_id", request["request_id"]?.ToString() }
-                };
+                        {
+                            { "type", reqType },
+                            { "status", "error" },
+                            { "message", "请先登录或注册" },
+                            { "request_id", request["request_id"]?.ToString() }
+                        };
                         _logger.LogWarning($"未登录客户端 {clientAddr.ip}:{clientAddr.port} 尝试发送请求: {reqType}");
                         SendResponse(clientSock, response);
                     }
+                    // 已登录，处理其他请求
                     else
                     {
-                        // 已登录，处理其他请求
                         switch (reqType)
                         {
                             case "send_message":
@@ -1654,10 +1699,38 @@ namespace Server
                                 response = UpdateUserProfile(request, clientSock);
                                 break;
                             case "download_media":
-                                DownloadMedia(request, clientSock);
+                                try
+                                {
+                                    DownloadMedia(request, clientSock);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError($"处理 download_media 请求失败: error={ex.Message}, request={JsonConvert.SerializeObject(request)}");
+                                    SendResponse(clientSock, new Dictionary<string, object>
+                            {
+                                { "type", "download_media" },
+                                { "status", "error" },
+                                { "message", $"下载请求失败: {ex.Message}" },
+                                { "request_id", request["request_id"]?.ToString() }
+                            });
+                                }
                                 continue;
                             case "get_chat_history_paginated":
-                                GetChatHistoryPaginated(request, clientSock);
+                                try
+                                {
+                                    GetChatHistoryPaginated(request, clientSock);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError($"处理 get_chat_history_paginated 请求失败: error={ex.Message}, request={JsonConvert.SerializeObject(request)}");
+                                    SendResponse(clientSock, new Dictionary<string, object>
+                            {
+                                { "type", "get_chat_history_paginated" },
+                                { "status", "error" },
+                                { "message", $"请求失败: {ex.Message}" },
+                                { "request_id", request["request_id"]?.ToString() }
+                            });
+                                }
                                 continue;
                             case "add_friend":
                                 response = AddFriend(request, clientSock);
@@ -1763,7 +1836,7 @@ namespace Server
                         { "sign", reader.IsDBNull(reader.GetOrdinal("signs")) ? "" : reader.GetString("signs") },
                         { "request_id", requestId }
                     };
-                    _logger.LogDebug($"发送用户信息响应：{JsonSerializer.Serialize(response)}");
+                    _logger.LogDebug($"发送用户信息响应：{JsonConvert.SerializeObject(response)}");
                     SendResponse(clientSock, response);
                     return response;
                 }
@@ -1785,105 +1858,238 @@ namespace Server
 
         private void DownloadMedia(Dictionary<string, object> request, Socket clientSock)
         {
-            var fileId = request["file_id"]?.ToString();
-            var downloadType = request["download_type"]?.ToString();
-            var requestId = request["request_id"]?.ToString();
-            var offset = request.ContainsKey("offset") ? Convert.ToInt64(request["offset"]) : 0;
-
-            var validTypes = new HashSet<string> { "avatar", "image", "video", "file", "thumbnail" };
-            if (!validTypes.Contains(downloadType))
-            {
-                var resp = new Dictionary<string, object> { { "type", "download_media" }, { "status", "error" }, { "message", $"无效的 download_type: {downloadType}" }, { "request_id", requestId } };
-                SendResponse(clientSock, resp);
-                return;
-            }
-
-            using var conn = GetDbConnection();
-            if (conn == null)
-            {
-                var resp = new Dictionary<string, object> { { "type", "download_media" }, { "status", "error" }, { "message", "数据库连接失败" }, { "request_id", requestId } };
-                SendResponse(clientSock, resp);
-                return;
-            }
-
-            string filePath = null;
+            string requestId = request.ContainsKey("request_id") ? request["request_id"]?.ToString() : null;
             try
             {
-                using var cmd = conn.CreateCommand();
-                if (downloadType == "avatar")
+                // —— Step 1. 安全解析 single_request ——
+                request.TryGetValue("single_request", out object singleReqObj);
+                bool isSingleRequest = false;
+                if (singleReqObj != null && bool.TryParse(singleReqObj.ToString(), out bool tmp))
+                    isSingleRequest = tmp;
+                _logger.LogDebug($"解析 single_request: value={(singleReqObj ?? "null")}, isSingleRequest={isSingleRequest}");
+
+                // —— Step 2. 验证 download_type ——
+                string downloadType = request.ContainsKey("download_type") ? request["download_type"]?.ToString() : null;
+                if (string.IsNullOrEmpty(downloadType) ||
+                    !new HashSet<string> { "avatar", "image", "video", "file", "thumbnail" }.Contains(downloadType))
                 {
-                    cmd.CommandText = "SELECT avatar_path FROM users WHERE avatars = @file_id";
-                    cmd.Parameters.AddWithValue("@file_id", fileId);
+                    _logger.LogError($"无效的 download_type: {downloadType}");
+                    SendResponse(clientSock, new Dictionary<string, object>
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "无效的 download_type" },
+                { "request_id", requestId }
+            });
+                    return;
                 }
-                else if (downloadType == "thumbnail")
+
+                // —— Step 3. 解析 file_ids / file_id ——
+                List<string> fileIds = new();
+                request.TryGetValue("file_ids", out object fidsObj);
+                if (fidsObj != null)
                 {
-                    cmd.CommandText = "SELECT thumbnail_path FROM messages WHERE file_id = @file_id";
-                    cmd.Parameters.AddWithValue("@file_id", fileId);
+                    fileIds = (fidsObj as JArray)?
+                        .Select(j => j.ToString()).ToList()
+                        ?? JsonConvert.DeserializeObject<List<string>>(JsonConvert.SerializeObject(fidsObj));
+                    _logger.LogDebug($"解析到 file_ids: {string.Join(", ", fileIds)}");
                 }
-                else
+                else if (request.TryGetValue("file_id", out object fidObj) && fidObj != null)
                 {
-                    cmd.CommandText = "SELECT attachment_path FROM messages WHERE file_id = @file_id AND attachment_type = @attachment_type";
-                    cmd.Parameters.AddWithValue("@file_id", fileId);
-                    cmd.Parameters.AddWithValue("@attachment_type", downloadType);
+                    fileIds.Add(fidObj.ToString());
+                    _logger.LogDebug($"解析到 single file_id: {fidObj}");
                 }
-                using var reader = cmd.ExecuteReader();
-                if (reader.Read() && !reader.IsDBNull(0))
-                    filePath = reader.GetString(0);
-                _logger.LogDebug($"查询文件：file_id={fileId}, download_type={downloadType}, file_path={filePath}");
-            }
-            catch (Exception ex)
+
+                if (!fileIds.Any())
+                {
+                    _logger.LogError("未提供有效的文件ID");
+                    SendResponse(clientSock, new Dictionary<string, object>
             {
-                _logger.LogError($"查询文件路径失败: {ex.Message}");
-            }
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "未提供文件ID" },
+                { "request_id", requestId }
+            });
+                    return;
+                }
 
-            if (string.IsNullOrEmpty(filePath))
+                // —— Step 4. 查询数据库拿到路径、大小、MD5 ——
+                var filePaths = new Dictionary<string, string>();
+                var fileSizes = new Dictionary<string, long>();
+                var fileChecksums = new Dictionary<string, string>();
+                using var conn = GetDbConnection();
+                if (conn == null)
+                {
+                    _logger.LogError("数据库连接失败");
+                    SendResponse(clientSock, new Dictionary<string, object>
             {
-                _logger.LogError($"数据库未找到文件: file_id={fileId}, download_type={downloadType}");
-                var resp = new Dictionary<string, object> { { "type", "download_media" }, { "status", "error" }, { "message", $"文件不存在或无记录: {fileId}" }, { "request_id", requestId } };
-                SendResponse(clientSock, resp);
-                return;
-            }
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "数据库连接失败" },
+                { "request_id", requestId }
+            });
+                    return;
+                }
 
-            if (!Path.IsPathRooted(filePath))
-                filePath = Path.Combine(Directory.GetCurrentDirectory(), filePath);
+                foreach (var fileId in fileIds)
+                {
+                    try
+                    {
+                        using var cmd = conn.CreateCommand();
+                        if (downloadType == "avatar")
+                        {
+                            cmd.CommandText = "SELECT avatar_path FROM users WHERE avatars = @fileId";
+                            cmd.Parameters.AddWithValue("@fileId", fileId);
+                        }
+                        else
+                        {
+                            cmd.CommandText = "SELECT attachment_path FROM messages WHERE file_id = @fileId AND attachment_type = @type";
+                            cmd.Parameters.AddWithValue("@fileId", fileId);
+                            cmd.Parameters.AddWithValue("@type", downloadType);
+                        }
 
-            if (!File.Exists(filePath))
+                        using var reader = cmd.ExecuteReader();
+                        if (!reader.Read() || reader.IsDBNull(0))
+                            throw new FileNotFoundException($"数据库中无此文件记录: {fileId}");
+
+                        var rawPath = reader.GetString(0);
+                        reader.Close();
+
+                        var fullPath = Path.IsPathRooted(rawPath)
+                            ? rawPath
+                            : Path.Combine(Directory.GetCurrentDirectory(), rawPath);
+                        if (!File.Exists(fullPath))
+                            throw new FileNotFoundException($"磁盘上文件不存在: {fullPath}");
+
+                        filePaths[fileId] = fullPath;
+                        fileSizes[fileId] = new FileInfo(fullPath).Length;
+                        fileChecksums[fileId] = ComputeMD5(fullPath);
+                        _logger.LogDebug($"文件查询成功: {fileId}, path={fullPath}, size={fileSizes[fileId]}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError($"查询文件失败: {fileId}, 错误: {ex.Message}");
+                        SendResponse(clientSock, new Dictionary<string, object>
+                {
+                    { "type", "download_media" },
+                    { "status", "error" },
+                    { "message", ex.Message },
+                    { "file_id", fileId },
+                    { "request_id", requestId }
+                });
+                    }
+                }
+
+                // —— Step 5. 初始化元数据，仅批量下载且非一次性请求时发送 ——
+                if (request.ContainsKey("file_ids") && !isSingleRequest)
+                {
+                    var initResp = new Dictionary<string, object>
             {
-                _logger.LogError($"文件路径不存在: file_id={fileId}, download_type={downloadType}, path={filePath}");
-                var resp = new Dictionary<string, object> { { "type", "download_media" }, { "status", "error" }, { "message", $"文件不存在: {fileId}" }, { "request_id", requestId } };
-                SendResponse(clientSock, resp);
-                return;
-            }
+                { "type", "download_media" },
+                { "status", "success" },
+                { "message", "下载初始化" },
+                { "request_id", requestId },
+                { "file_sizes", fileSizes },
+                { "file_checksums", fileChecksums }
+            };
+                    SendResponse(clientSock, initResp);
+                    _logger.LogDebug($"已发送初始化响应: files=[{string.Join(", ", filePaths.Keys)}]");
+                }
 
-            var fileSize = new FileInfo(filePath).Length;
-            const int chunkSize = 1024 * 1024; // 1MB
-
-            try
-            {
-                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-                fs.Seek(offset, SeekOrigin.Begin);
-                var buffer = new byte[chunkSize];
-                var bytesRead = fs.Read(buffer, 0, chunkSize);
-                var isComplete = (offset + bytesRead >= fileSize) || bytesRead == 0;
-                var resp = new Dictionary<string, object>
+                // —— Step 6. 一次性下载 ——
+                if (isSingleRequest)
+                {
+                    foreach (var kv in filePaths)
+                    {
+                        var id = kv.Key;
+                        var path = kv.Value;
+                        var data = File.ReadAllBytes(path);
+                        SendResponse(clientSock, new Dictionary<string, object>
                 {
                     { "type", "download_media" },
                     { "status", "success" },
-                    { "file_size", fileSize },
-                    { "offset", offset },
-                    { "is_complete", isComplete },
-                    { "request_id", requestId },
-                    { "file_data", bytesRead > 0 ? Convert.ToBase64String(buffer, 0, bytesRead) : "" }
-                };
-                SendResponse(clientSock, resp);
-                _logger.LogDebug($"发送下载块: file_id={fileId}, download_type={downloadType}, offset={offset}, size={bytesRead}, path={filePath}");
+                    { "file_id", id },
+                    { "file_size", fileSizes[id] },
+                    { "file_data", Convert.ToBase64String(data) },
+                    { "is_complete", true },
+                    { "request_id", requestId }
+                });
+                        _logger.LogDebug($"一次性发送文件: {id}, size={data.Length}");
+                    }
+                    return;
+                }
+
+                // —— Step 7. 分块传输 ——
+                if (!request.TryGetValue("offset", out object offObj) ||
+                    !long.TryParse(offObj?.ToString(), out long offset))
+                {
+                    _logger.LogError("分块请求缺少或无效 offset");
+                    SendResponse(clientSock, new Dictionary<string, object>
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "分块请求缺少或无效 offset" },
+                { "request_id", requestId }
+            });
+                    return;
+                }
+
+                var singleFileId = fileIds.Count == 1 ? fileIds[0] : null;
+                if (singleFileId == null)
+                {
+                    _logger.LogError("分块下载只支持单文件");
+                    SendResponse(clientSock, new Dictionary<string, object>
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "分块下载只支持单文件" },
+                { "request_id", requestId }
+            });
+                    return;
+                }
+
+                var filePathSingle = filePaths[singleFileId];
+                var totalSize = fileSizes[singleFileId];
+                const int chunkSize = 1024 * 1024;
+                using var fs = new FileStream(filePathSingle, FileMode.Open, FileAccess.Read, FileShare.Read);
+                fs.Seek(offset, SeekOrigin.Begin);
+                var buffer = new byte[chunkSize];
+                int read = fs.Read(buffer, 0, chunkSize);
+                bool done = offset + read >= totalSize;
+
+                SendResponse(clientSock, new Dictionary<string, object>
+        {
+            { "type", "download_media" },
+            { "status", "success" },
+            { "file_id", singleFileId },
+            { "file_size", totalSize },
+            { "offset", offset },
+            { "file_data", read > 0 ? Convert.ToBase64String(buffer, 0, read) : string.Empty },
+            { "is_complete", done },
+            { "request_id", requestId }
+        });
+                _logger.LogDebug($"分块发送: file_id={singleFileId}, offset={offset}, bytes={read}, is_complete={done}");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"文件下载失败: {ex.Message}, path={filePath}");
-                var resp = new Dictionary<string, object> { { "type", "download_media" }, { "status", "error" }, { "message", $"文件下载失败: {ex.Message}" }, { "request_id", requestId } };
-                SendResponse(clientSock, resp);
+                _logger.LogError($"处理 DownloadMedia 失败: {ex.Message}");
+                SendResponse(clientSock, new Dictionary<string, object>
+        {
+            { "type", "download_media" },
+            { "status", "error" },
+            { "message", $"下载请求失败: {ex.Message}" },
+            { "request_id", requestId }
+        });
             }
+        }
+
+
+        private string ComputeMD5(string filePath)
+        {
+            using var md5 = MD5.Create();
+            using var stream = File.OpenRead(filePath);
+            byte[] hash = md5.ComputeHash(stream);
+            return Convert.ToBase64String(hash);
         }
     }
 }

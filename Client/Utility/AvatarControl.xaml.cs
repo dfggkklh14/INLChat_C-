@@ -10,7 +10,7 @@ namespace Client.Utility
 {
     public partial class AvatarControl : System.Windows.Controls.UserControl
     {
-        private static readonly System.Uri DefaultAvatarUri = new System.Uri("pack://application:,,,/icon/default_avatar.ico");
+        private static readonly System.Uri DefaultAvatarUri = new System.Uri("pack://application:,,,/icon/default_avatar.png");
         private System.Action<System.Windows.Media.Imaging.BitmapImage> _uploadCallback;
 
         public System.Action<System.Windows.Media.Imaging.BitmapImage> UploadCallback

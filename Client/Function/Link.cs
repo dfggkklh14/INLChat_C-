@@ -56,12 +56,12 @@ namespace Client.Function
             _logger = loggerFactory.CreateLogger<Link>();
             _encryptionKey = LoadEncryptionKey();
             _config = new Dictionary<string, object>
-            {
-                { "host", host },
-                { "port", port },
-                { "retries", 5 },
-                { "delay", 2 }
-            };
+    {
+        { "host", host },
+        { "port", port },
+        { "retries", 5 },
+        { "delay", 2 }
+    };
             _isRunning = true;
             _sendLock = new SemaphoreSlim(1, 1);
             _pendingRequests = new Dictionary<string, TaskCompletionSource<Dictionary<string, object>>>();
@@ -71,17 +71,41 @@ namespace Client.Function
             UnreadMessages = new Dictionary<string, int>();
             CurrentFriend = null;
 
-            // 从 config.json 加载缓存路径
+            // 从 config.json 加载缓存路径或创建默认 config.json
             string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-            if (File.Exists(configPath))
+            if (!File.Exists(configPath))
             {
-                string configJson = File.ReadAllText(configPath);
-                var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(configJson);
-                _cacheRoot = config.ContainsKey("cache_path") ? config["cache_path"] : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                try
+                {
+                    // 创建默认配置
+                    var defaultConfig = new Dictionary<string, string>
+            {
+                { "cache_path", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA") }
+            };
+                    string defaultConfigJson = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
+                    File.WriteAllText(configPath, defaultConfigJson);
+                    _logger.LogInformation($"已创建默认 config.json 文件: {configPath}");
+                    _cacheRoot = defaultConfig["cache_path"];
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"创建 config.json 文件失败: {ex.Message}");
+                    _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                }
             }
             else
             {
-                _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                try
+                {
+                    string configJson = File.ReadAllText(configPath);
+                    var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(configJson);
+                    _cacheRoot = config.ContainsKey("cache_path") ? config["cache_path"] : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"读取 config.json 文件失败: {ex.Message}");
+                    _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                }
             }
 
             _avatarDir = Path.Combine(_cacheRoot, "avatars");
@@ -402,11 +426,9 @@ namespace Client.Function
                         continue;
                     }
 
-                    // 记录完整响应 JSON
                     string respJson = JsonConvert.SerializeObject(resp, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
                     _logger.LogDebug($"收到推送消息: {respJson}");
 
-                    // 检查 type 键
                     if (!resp.ContainsKey("type") || resp["type"] == null)
                     {
                         _logger.LogWarning($"消息缺少 type 键或 type 为 null: {respJson}");
@@ -433,62 +455,9 @@ namespace Client.Function
                         break;
                     }
 
-                    // 处理主动推送消息（如 friend_list_update）
-                    if (responseType == "friend_list_update")
+                    if (responseType == "friend_list_update" || responseType == "friend_update")
                     {
-                        var friendsObj = resp.GetValueOrDefault("friends");
-                        if (friendsObj == null)
-                        {
-                            _logger.LogWarning("friend_list_update 消息缺少 friends 字段");
-                            Friends = new List<Dictionary<string, object>>();
-                        }
-                        else
-                        {
-                            try
-                            {
-                                // 处理 JArray 或其他类型
-                                if (friendsObj is JArray jArray)
-                                {
-                                    Friends = jArray.Select(item => item.ToObject<Dictionary<string, object>>()).ToList();
-                                }
-                                else if (friendsObj is List<object> list)
-                                {
-                                    Friends = list.Cast<Dictionary<string, object>>().ToList();
-                                }
-                                else
-                                {
-                                    _logger.LogWarning($"friend_list_update 的 friends 字段类型未知: {friendsObj.GetType()}");
-                                    Friends = new List<Dictionary<string, object>>();
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError($"解析 friend_list_update 的 friends 字段失败: {ex.Message}\nStackTrace: {ex.StackTrace}");
-                                Friends = new List<Dictionary<string, object>>();
-                            }
-                        }
-                        _logger.LogDebug($"触发 FriendListUpdated，朋友列表长度: {Friends.Count}");
-                        FriendListUpdated?.Invoke(Friends);
-                        continue;
-                    }
-                    else if (responseType == "friend_update")
-                    {
-                        var friend = resp.GetValueOrDefault("friend") as Dictionary<string, object>;
-                        string friendId = friend?.GetValueOrDefault("username")?.ToString();
-                        if (!string.IsNullOrEmpty(friendId))
-                        {
-                            int index = Friends.FindIndex(f => f.GetValueOrDefault("username")?.ToString() == friendId);
-                            if (index >= 0)
-                            {
-                                Friends[index] = friend;
-                            }
-                            else
-                            {
-                                Friends.Add(friend);
-                            }
-                            _logger.LogDebug($"触发 FriendListUpdated，更新好友: {friendId}");
-                            FriendListUpdated?.Invoke(Friends);
-                        }
+                        await HandleFriendUpdates(resp);
                         continue;
                     }
                     else if (responseType == "new_message" || responseType == "new_media")
@@ -507,7 +476,6 @@ namespace Client.Function
                         continue;
                     }
 
-                    // 处理需要 request_id 的响应
                     string requestId = resp.GetValueOrDefault("request_id")?.ToString();
                     if (!string.IsNullOrEmpty(requestId) && _pendingRequests.ContainsKey(requestId))
                     {
@@ -529,6 +497,106 @@ namespace Client.Function
                     await Task.Delay(1000);
                 }
             }
+        }
+
+        private async Task HandleFriendUpdates(Dictionary<string, object> resp)
+        {
+            string responseType = resp["type"].ToString();
+            if (responseType == "friend_list_update")
+            {
+                var friendsObj = resp.GetValueOrDefault("friends");
+                if (friendsObj == null)
+                {
+                    _logger.LogWarning("friend_list_update 消息缺少 friends 字段");
+                    Friends = new List<Dictionary<string, object>>();
+                }
+                else
+                {
+                    try
+                    {
+                        if (friendsObj is JArray jArray)
+                        {
+                            Friends = jArray.Select(item => ConvertJObjectToDictionary(item)).ToList();
+                        }
+                        else if (friendsObj is List<object> list)
+                        {
+                            Friends = list.Select(item => ConvertJObjectToDictionary(item)).ToList();
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"friend_list_update 的 friends 字段类型未知: {friendsObj.GetType()}");
+                            Friends = new List<Dictionary<string, object>>();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError($"解析 friend_list_update 的 friends 字段失败: {ex.Message}\nStackTrace: {ex.StackTrace}");
+                        Friends = new List<Dictionary<string, object>>();
+                    }
+                }
+                _logger.LogDebug($"触发 FriendListUpdated，好友数量: {Friends.Count}");
+                FriendListUpdated?.Invoke(Friends);
+            }
+            else if (responseType == "friend_update")
+            {
+                var friend = resp.GetValueOrDefault("friend");
+                if (friend != null)
+                {
+                    var convertedFriend = ConvertJObjectToDictionary(friend);
+                    string friendId = convertedFriend.GetValueOrDefault("username")?.ToString();
+                    if (!string.IsNullOrEmpty(friendId))
+                    {
+                        int index = Friends.FindIndex(f => f.GetValueOrDefault("username")?.ToString() == friendId);
+                        if (index >= 0)
+                        {
+                            Friends[index] = convertedFriend;
+                        }
+                        else
+                        {
+                            Friends.Add(convertedFriend);
+                        }
+                        _logger.LogDebug($"触发 FriendListUpdated，更新好友: {friendId}");
+                        FriendListUpdated?.Invoke(Friends);
+                    }
+                }
+            }
+        }
+
+        private Dictionary<string, object> ConvertJObjectToDictionary(object item)
+        {
+            Dictionary<string, object> result;
+            if (item is JObject jObject)
+            {
+                result = jObject.ToObject<Dictionary<string, object>>();
+            }
+            else if (item is Dictionary<string, object> dict)
+            {
+                result = new Dictionary<string, object>(dict);
+            }
+            else
+            {
+                _logger.LogWarning($"未知的对象类型: {item?.GetType().Name}");
+                return new Dictionary<string, object>();
+            }
+
+            if (result.ContainsKey("conversations") && result["conversations"] != null)
+            {
+                if (result["conversations"] is JObject convJObject)
+                {
+                    result["conversations"] = convJObject.ToObject<Dictionary<string, object>>();
+                }
+                else if (result["conversations"] is Dictionary<string, object>)
+                {
+                    // 已经是 Dictionary，无需转换
+                }
+                else
+                {
+                    _logger.LogWarning($"conversations 字段类型未知: {result["conversations"].GetType().Name}");
+                    result["conversations"] = new Dictionary<string, object>();
+                }
+            }
+
+            return result;
         }
 
         private async Task RegisterReader()
@@ -709,6 +777,7 @@ namespace Client.Function
             string sender = resp.GetValueOrDefault("from")?.ToString();
             if (string.IsNullOrEmpty(sender))
             {
+                _logger.LogWarning("新消息缺少发送者，忽略");
                 return;
             }
 
@@ -716,67 +785,33 @@ namespace Client.Function
             {
                 if (friend.GetValueOrDefault("username")?.ToString() == sender)
                 {
-                    if (resp.GetValueOrDefault("type")?.ToString() == "new_media")
-                    {
-                        string fileId = resp.GetValueOrDefault("file_id")?.ToString();
-                        string fileType = resp.GetValueOrDefault("file_type")?.ToString();
-                        string thumbnailData = resp.GetValueOrDefault("thumbnail_data")?.ToString();
-                        string savePath = Path.Combine(_thumbnailDir, fileId);
-                        if (!string.IsNullOrEmpty(thumbnailData) && !File.Exists(savePath))
-                        {
-                            try
-                            {
-                                byte[] thumbnailBytes = Convert.FromBase64String(thumbnailData);
-                                File.WriteAllBytes(savePath, thumbnailBytes);
-                                _logger.LogDebug($"保存缩略图: file_id={fileId}, save_path={savePath}");
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError($"保存缩略图失败: file_id={fileId}, error={ex.Message}");
-                            }
-                        }
-                        resp["thumbnail_local_path"] = savePath;
-                        friend["conversations"] = new Dictionary<string, object>
-                        {
-                            { "sender", resp.GetValueOrDefault("from") },
-                            { "content", resp.GetValueOrDefault("conversations") ?? $"[{resp.GetValueOrDefault("file_type") ?? "文件"}]" },
-                            { "last_update_time", resp.GetValueOrDefault("write_time") ?? "" }
-                        };
-                    }
-                    else
-                    {
-                        friend["conversations"] = new Dictionary<string, object>
-                        {
-                            { "sender", resp.GetValueOrDefault("from") },
-                            { "content", resp.GetValueOrDefault("message") ?? "" },
-                            { "last_update_time", resp.GetValueOrDefault("write_time") ?? "" }
-                        };
-                    }
+                    var newConversation = new Dictionary<string, object>
+            {
+                { "sender", resp.GetValueOrDefault("from") },
+                { "content", resp.GetValueOrDefault("type")?.ToString() == "new_media"
+                    ? $"[{resp.GetValueOrDefault("file_type") ?? "文件"}]"
+                    : resp.GetValueOrDefault("message") ?? "" },
+                { "last_update_time", resp.GetValueOrDefault("write_time")?.ToString() ?? "" }
+            };
+                    friend["conversations"] = newConversation;
+                    _logger.LogDebug($"更新好友会话，Username: {sender}, Content: {newConversation["content"]}, LastUpdateTime: {newConversation["last_update_time"]}");
                     break;
                 }
             }
 
-            bool shouldIncrementUnread = true;
-            if (sender == CurrentFriend)
-            {
-                // 注意：C# 中需要实现 chat_window 和相关 UI 逻辑，这里假设有类似实现
-                // 由于 Python 中使用了 PyQt5，这里需要额外的 UI 框架支持
-                shouldIncrementUnread = false; // 简化处理，实际需实现 UI 判断
-            }
+            bool shouldIncrementUnread = sender != CurrentFriend;
             if (shouldIncrementUnread)
             {
                 UnreadMessages[sender] = UnreadMessages.GetValueOrDefault(sender, 0) + 1;
             }
 
-            ConversationsUpdated?.Invoke(Friends, new List<string> { sender }, new List<int>(), false);
-
+            FriendListUpdated?.Invoke(Friends); // 触发更新
             if (resp.GetValueOrDefault("type")?.ToString() == "new_message")
             {
                 NewMessageReceived?.Invoke(resp);
             }
             else if (resp.GetValueOrDefault("type")?.ToString() == "new_media")
             {
-                _logger.LogDebug($"发射新媒体信号: {JsonConvert.SerializeObject(resp)}");
                 NewMediaReceived?.Invoke(resp);
             }
         }
@@ -792,11 +827,11 @@ namespace Client.Function
         public async Task<Dictionary<string, object>> GetUserInfo()
         {
             var req = new Dictionary<string, object>
-            {
-                { "type", "get_user_info" },
-                { "username", _username },
-                { "request_id", Guid.NewGuid().ToString() }
-            };
+    {
+        { "type", "get_user_info" },
+        { "username", _username },
+        { "request_id", Guid.NewGuid().ToString() }
+    };
             var resp = await SendRequest(req);
             if (resp.GetValueOrDefault("status")?.ToString() == "success" && resp.ContainsKey("avatar_id"))
             {
@@ -804,7 +839,15 @@ namespace Client.Function
                 string savePath = Path.Combine(_avatarDir, avatarId);
                 if (!File.Exists(savePath))
                 {
-                    await DownloadMedia(avatarId, savePath, "avatar");
+                    var results = await DownloadMedia(
+                        new List<(string, string)> { (avatarId, savePath) },
+                        "avatar",
+                        null
+                    );
+                    if (results.FirstOrDefault()?.GetValueOrDefault("status")?.ToString() != "success")
+                    {
+                        _logger.LogError($"头像下载失败: file_id={avatarId}, message={results.FirstOrDefault()?.GetValueOrDefault("message")}");
+                    }
                 }
                 resp["avatar_local_path"] = savePath;
             }
@@ -878,14 +921,14 @@ namespace Client.Function
         public async Task<Dictionary<string, object>> GetChatHistoryPaginated(string friend, int page, int pageSize)
         {
             var req = new Dictionary<string, object>
-            {
-                { "type", "get_chat_history_paginated" },
-                { "username", _username },
-                { "friend", friend },
-                { "page", page },
-                { "page_size", pageSize },
-                { "request_id", Guid.NewGuid().ToString() }
-            };
+    {
+        { "type", "get_chat_history_paginated" },
+        { "username", _username },
+        { "friend", friend },
+        { "page", page },
+        { "page_size", pageSize },
+        { "request_id", Guid.NewGuid().ToString() }
+    };
             var resp = await SendRequest(req);
             var parsedResp = await ParseResponse(resp);
 
@@ -897,10 +940,14 @@ namespace Client.Function
                     string savePath = Path.Combine(_thumbnailDir, $"{fileId}_thumbnail");
                     if (!File.Exists(savePath) || new FileInfo(savePath).Length == 0)
                     {
-                        var result = await DownloadMedia(fileId, savePath, "thumbnail");
-                        if (result.GetValueOrDefault("status")?.ToString() != "success")
+                        var results = await DownloadMedia(
+                            new List<(string, string)> { (fileId, savePath) },
+                            "thumbnail",
+                            null
+                        );
+                        if (results.FirstOrDefault()?.GetValueOrDefault("status")?.ToString() != "success")
                         {
-                            _logger.LogError($"缩略图下载失败: {result.GetValueOrDefault("message")}");
+                            _logger.LogError($"缩略图下载失败: file_id={fileId}, message={results.FirstOrDefault()?.GetValueOrDefault("message")}");
                         }
                     }
                     entry["thumbnail_local_path"] = savePath;
@@ -1108,12 +1155,12 @@ namespace Client.Function
             string fileDataB64 = Convert.ToBase64String(fileData);
 
             var req = new Dictionary<string, object>
-            {
-                { "type", "upload_avatar" },
-                { "username", _username },
-                { "file_data", fileDataB64 },
-                { "request_id", Guid.NewGuid().ToString() }
-            };
+    {
+        { "type", "upload_avatar" },
+        { "username", _username },
+        { "file_data", fileDataB64 },
+        { "request_id", Guid.NewGuid().ToString() }
+    };
             var resp = await SendRequest(req);
             if (resp.GetValueOrDefault("status")?.ToString() == "success" && resp.ContainsKey("avatar_id"))
             {
@@ -1121,7 +1168,15 @@ namespace Client.Function
                 string savePath = Path.Combine(_avatarDir, avatarId);
                 if (!File.Exists(savePath))
                 {
-                    await DownloadMedia(avatarId, savePath, "avatar");
+                    var results = await DownloadMedia(
+                        new List<(string, string)> { (avatarId, savePath) },
+                        "avatar",
+                        null
+                    );
+                    if (results.FirstOrDefault()?.GetValueOrDefault("status")?.ToString() != "success")
+                    {
+                        _logger.LogError($"头像下载失败: file_id={avatarId}, message={results.FirstOrDefault()?.GetValueOrDefault("message")}");
+                    }
                 }
                 resp["avatar_local_path"] = savePath;
             }
@@ -1160,66 +1215,188 @@ namespace Client.Function
             return await SendRequest(req);
         }
 
-        public async Task<Dictionary<string, object>> DownloadMedia(string fileId, string savePath, string downloadType = "default",
+        /// <summary>
+        /// 简化后的客户端下载方法，保留原始签名及辅助函数，实现初始化、单次与分块下载。
+        /// </summary>
+        public async Task<List<Dictionary<string, object>>> DownloadMedia(
+            List<(string fileId, string savePath)> fileRequests,
+            string downloadType = "default",
             Action<string, double, string> progressCallback = null)
         {
-            long receivedSize = 0;
+            var results = new List<Dictionary<string, object>>();
+            if (fileRequests == null || fileRequests.Count == 0)
+            {
+                _logger.LogWarning("下载请求列表为空");
+                return results;
+            }
+            if (_clientSocket?.Connected != true || _stream == null)
+            {
+                _logger.LogError("连接不可用，无法下载");
+                return results;
+            }
+
+            // 1. 初始化，获取所有文件大小和校验和
+            var initReq = new Dictionary<string, object>
+            {
+                ["type"] = "download_media",
+                ["file_ids"] = fileRequests.Select(r => r.fileId).ToList(),
+                ["download_type"] = downloadType,
+                ["request_id"] = Guid.NewGuid().ToString()
+            };
+            var initResp = await SendRequestAsync(initReq);
+            if (initResp.GetValueOrDefault("status")?.ToString() != "success")
+            {
+                _logger.LogError($"下载初始化失败: {initResp.GetValueOrDefault("message")}");
+                return results;
+            }
+            var fileSizes = JsonConvert.DeserializeObject<Dictionary<string, long>>(initResp["file_sizes"].ToString());
+            var fileChecksums = JsonConvert.DeserializeObject<Dictionary<string, string>>(initResp["file_checksums"].ToString());
+
+            // 2. 根据文件大小选择下载方式
+            const long SingleThreshold = 1024 * 1024; // 1MB
+            foreach (var (fileId, savePath) in fileRequests)
+            {
+                string tempPath = savePath + ".tmp";
+                Directory.CreateDirectory(Path.GetDirectoryName(savePath));
+                long expectedSize = fileSizes.TryGetValue(fileId, out var sz) ? sz : 0;
+                bool singleRequest = expectedSize > 0 && expectedSize <= SingleThreshold;
+
+                bool success = singleRequest
+                    ? await DownloadSingleAsync(fileId, tempPath, downloadType)
+                    : await DownloadChunksAsync(fileId, tempPath, downloadType, progressCallback);
+
+                if (success && ValidateFile(tempPath, expectedSize, fileChecksums, fileId))
+                {
+                    File.Move(tempPath, savePath, true);
+                    _logger.LogInformation($"下载成功: {fileId} -> {savePath}");
+                    results.Add(new Dictionary<string, object>
+                    {
+                        ["status"] = "success",
+                        ["file_id"] = fileId,
+                        ["save_path"] = savePath
+                    });
+                }
+                else
+                {
+                    if (File.Exists(tempPath)) File.Delete(tempPath);
+                    results.Add(new Dictionary<string, object>
+                    {
+                        ["status"] = "error",
+                        ["file_id"] = fileId
+                    });
+                }
+            }
+            return results;
+        }
+
+        // 通用发送请求并等待响应
+        private async Task<Dictionary<string, object>> SendRequestAsync(Dictionary<string, object> payload)
+        {
+            var requestId = payload["request_id"].ToString();
+            var tcs = new TaskCompletionSource<Dictionary<string, object>>();
+            _pendingRequests[requestId] = tcs;
+            var data = PackMessage(Encrypt(payload));
+            await _sendLock.WaitAsync();
+            try { await _stream.WriteAsync(data, 0, data.Length); }
+            finally { _sendLock.Release(); }
+
+            var timeout = Task.Delay(30000);
+            var completed = await Task.WhenAny(tcs.Task, timeout);
+            _pendingRequests.Remove(requestId);
+            return completed == tcs.Task
+                ? await tcs.Task
+                : new Dictionary<string, object> { ["status"] = "error", ["message"] = "请求超时" };
+        }
+
+        // 一次性下载小文件
+        private async Task<bool> DownloadSingleAsync(string fileId, string tempPath, string downloadType)
+        {
+            var req = new Dictionary<string, object>
+            {
+                ["type"] = "download_media",
+                ["file_id"] = fileId,
+                ["download_type"] = downloadType,
+                ["request_id"] = Guid.NewGuid().ToString(),
+                ["single_request"] = true
+            };
+            var resp = await SendRequestAsync(req);
+            if (resp.GetValueOrDefault("status")?.ToString() != "success") return false;
+            var dataB64 = resp.GetValueOrDefault("file_data")?.ToString() ?? string.Empty;
+            await File.WriteAllBytesAsync(tempPath, Convert.FromBase64String(dataB64));
+            return true;
+        }
+
+        // 分块下载大文件
+        private async Task<bool> DownloadChunksAsync(
+            string fileId,
+            string tempPath,
+            string downloadType,
+            Action<string, double, string> progressCallback)
+        {
             long offset = 0;
+            while (true)
+            {
+                var req = new Dictionary<string, object>
+                {
+                    ["type"] = "download_media",
+                    ["file_id"] = fileId,
+                    ["offset"] = offset,
+                    ["download_type"] = downloadType,
+                    ["request_id"] = Guid.NewGuid().ToString()
+                };
+                var resp = await SendRequestAsync(req);
+                if (resp.GetValueOrDefault("status")?.ToString() != "success") return false;
+                var chunk = Convert.FromBase64String(resp.GetValueOrDefault("file_data")?.ToString() ?? string.Empty);
+                if (chunk.Length > 0)
+                {
+                    await using var fs = new FileStream(tempPath, FileMode.OpenOrCreate, FileAccess.Write);
+                    fs.Seek(offset, SeekOrigin.Begin);
+                    await fs.WriteAsync(chunk, 0, chunk.Length);
+                    offset += chunk.Length;
+                }
+                bool isComplete = Convert.ToBoolean(resp.GetValueOrDefault("is_complete") ?? false);
+                if (isComplete) break;
+            }
+            return true;
+        }
+
+        // 校验文件完整性与合法性
+        private bool ValidateFile(
+            string tempPath,
+            long expectedSize,
+            Dictionary<string, string> checksums,
+            string fileId)
+        {
+            // 大小校验
+            if (new FileInfo(tempPath).Length != expectedSize) return false;
+            // MD5 校验
+            if (checksums != null && checksums.TryGetValue(fileId, out var expect)
+                && ComputeMD5(tempPath) != expect) return false;
+            // 图像合法性（仅 JPEG）
+            return IsValidImage(tempPath);
+        }
+
+        // 计算文件 MD5
+        private string ComputeMD5(string path)
+        {
+            using var md5 = MD5.Create();
+            using var stream = File.OpenRead(path);
+            return Convert.ToBase64String(md5.ComputeHash(stream));
+        }
+
+        // 简单检测 JPEG 文件头
+        private bool IsValidImage(string path)
+        {
             try
             {
-                using (var fs = new FileStream(savePath, FileMode.Create, FileAccess.Write))
-                {
-                    while (true)
-                    {
-                        var req = new Dictionary<string, object>
-                        {
-                            { "type", "download_media" },
-                            { "file_id", fileId },
-                            { "offset", offset },
-                            { "download_type", downloadType },
-                            { "request_id", Guid.NewGuid().ToString() }
-                        };
-                        var resp = await SendRequest(req);
-                        if (resp.GetValueOrDefault("status")?.ToString() != "success")
-                        {
-                            return resp;
-                        }
-                        long totalSize = Convert.ToInt64(resp.GetValueOrDefault("file_size") ?? 0);
-                        string fileDataB64 = resp.GetValueOrDefault("file_data")?.ToString() ?? "";
-                        if (!string.IsNullOrEmpty(fileDataB64))
-                        {
-                            byte[] fileData = Convert.FromBase64String(fileDataB64);
-                            await fs.WriteAsync(fileData, 0, fileData.Length);
-                            receivedSize += fileData.Length;
-                            offset += fileData.Length;
-                            if (progressCallback != null)
-                            {
-                                double progress = totalSize > 0 ? (double)receivedSize / totalSize * 100 : 0;
-                                progressCallback("download", progress, Path.GetFileName(savePath));
-                            }
-                        }
-                        if (Convert.ToBoolean(resp.GetValueOrDefault("is_complete") ?? false))
-                        {
-                            break;
-                        }
-                    }
-                }
-                if (receivedSize != new FileInfo(savePath).Length)
-                {
-                    return new Dictionary<string, object> { { "status", "error" }, { "message", $"下载不完整: 收到 {receivedSize} / {new FileInfo(savePath).Length} 字节" } };
-                }
-                return new Dictionary<string, object> { { "status", "success" }, { "message", "下载成功" }, { "save_path", savePath } };
+                using var fs = File.OpenRead(path);
+                byte[] header = new byte[2];
+                fs.Read(header, 0, 2);
+                return header[0] == 0xFF && header[1] == 0xD8;
             }
-            catch (Exception ex)
-            {
-                if (File.Exists(savePath))
-                {
-                    File.Delete(savePath);
-                }
-                _logger.LogError($"下载失败: file_id={fileId}, error={ex.Message}");
-                return new Dictionary<string, object> { { "status", "error" }, { "message", $"下载失败: {ex.Message}" } };
-            }
+            catch { return false; }
         }
+
 
         public async Task<Dictionary<string, object>> AddFriend(string friendUsername)
         {

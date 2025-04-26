@@ -4,8 +4,8 @@
              Width="100" Height="100"
              Background="Transparent">
     <UserControl.Resources>
-        <BitmapImage x:Key="ShallowIcon" UriSource="pack://application:,,,/icon/cma_icon_shallow.ico" />
-        <BitmapImage x:Key="DeepIcon" UriSource="pack://application:,,,/icon/cma_icon_deep.ico" />
+        <BitmapImage x:Key="ShallowIcon" UriSource="pack://application:,,,/icon/cma_icon_shallow.png" />
+        <BitmapImage x:Key="DeepIcon" UriSource="pack://application:,,,/icon/cma_icon_deep.png" />
         <Style x:Key="UploadButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#64000000"/>
             <Setter Property="BorderThickness" Value="0"/>

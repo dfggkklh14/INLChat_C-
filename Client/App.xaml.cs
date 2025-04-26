@@ -1,19 +1,19 @@
 ﻿using System;
 using System.IO;
 using System.Windows;
-using Hardcodet.Wpf.TaskbarNotification; // 用于 TaskbarIcon
-using System.Windows.Controls; // 用于 ContextMenu 和 MenuItem
+using Hardcodet.Wpf.TaskbarNotification;
+using System.Windows.Controls;
 using Client.page;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
-using Client.Function; // 用于 Debug.WriteLine
+using Client.Function;
 
 namespace Client
 {
-    public partial class App : System.Windows.Application
+    public partial class App : Application
     {
         private readonly TaskbarIcon _trayIcon;
         private readonly ILogger<App> _logger;
@@ -26,6 +26,7 @@ namespace Client
 
         public App()
         {
+            DispatcherUnhandledException += App_DispatcherUnhandledException;
             _loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder
@@ -38,6 +39,7 @@ namespace Client
                     .SetMinimumLevel(LogLevel.Debug);
             });
             _logger = _loggerFactory.CreateLogger<App>();
+            _logger.LogInformation("App LogFactory 初始化成功");
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
             // 初始化系统托盘图标
@@ -68,7 +70,6 @@ namespace Client
             _loginWindow.Closed += (s, e) => OnWindowClosed(_loginWindow);
         }
 
-        // 自定义控制台日志格式化器
         public class CustomTimestampFormatter : ConsoleFormatter
         {
             private readonly ConsoleFormatterOptions _options;
@@ -92,7 +93,6 @@ namespace Client
             }
         }
 
-        // 自定义 Debug 日志提供程序
         public class DebugLoggerProvider : ILoggerProvider
         {
             public ILogger CreateLogger(string categoryName)
@@ -103,7 +103,6 @@ namespace Client
             public void Dispose() { }
         }
 
-        // 自定义 Debug 日志记录器
         public class DebugLogger : ILogger
         {
             private readonly string _categoryName;
@@ -133,7 +132,6 @@ namespace Client
             }
         }
 
-        // 用于 BeginScope 的空实现
         private class NullScope : IDisposable
         {
             public static NullScope Instance { get; } = new NullScope();
@@ -218,11 +216,10 @@ namespace Client
             catch (Exception ex)
             {
                 _logger.LogError($"显示 LoginWindow 失败: {ex.Message}\n堆栈跟踪: {ex.StackTrace}");
-                System.Windows.MessageBox.Show("无法打开登录窗口，请重启应用程序", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("无法打开登录窗口，请重启应用程序", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        // App.xaml.cs
         private void SetupTrayMenu()
         {
             var contextMenu = new ContextMenu();
@@ -236,14 +233,14 @@ namespace Client
                 {
                     if (_chatClient != null)
                     {
-                        await _chatClient.CloseConnection(); // 发送 exit 请求并等待清理
+                        await _chatClient.CloseConnection();
                     }
-                    Shutdown(); // 退出应用程序
+                    Shutdown();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError($"系统托盘退出失败: {ex.Message}");
-                    System.Windows.MessageBox.Show($"退出失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"退出失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             };
             contextMenu.Items.Add(openMenuItem);
@@ -315,7 +312,6 @@ namespace Client
             _logger.LogInformation("应用程序开始关闭");
             try
             {
-                // 仅在未调用 CloseConnection 时清理
                 if (_chatClient != null)
                 {
                     _chatClient.CloseConnection().GetAwaiter().GetResult();
@@ -323,7 +319,6 @@ namespace Client
                     _chatClient = null;
                 }
 
-                // 关闭所有窗口
                 if (_loginWindow != null && _loginWindow.IsVisible)
                 {
                     _loginWindow.Close();
@@ -344,6 +339,12 @@ namespace Client
                 _logger.LogError($"关闭应用程序时出错: {ex.Message}");
             }
             base.OnExit(e);
+        }
+        private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+        {
+            _logger.LogError($"未处理异常: {e.Exception}");
+            e.Handled = true; // 防止程序崩溃
+            MessageBox.Show($"发生错误：{e.Exception.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }
