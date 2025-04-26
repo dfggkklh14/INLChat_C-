@@ -217,6 +217,7 @@ namespace Client.Utility.FriendList
                     if (friendAvatar != null && Link != null)
                     {
                         friendAvatar.Link = Link;
+                        friendAvatar.IsCreatedByFriendListControl = true; // 设置标志
                     }
                 }
             }

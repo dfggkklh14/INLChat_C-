@@ -19,27 +19,35 @@ namespace Client.Utility.FriendList
     public partial class FriendAvatarControl : UserControl
     {
         private readonly ILogger<FriendAvatarControl> _logger;
+        private bool _isCreatedByFriendListControl; // 标志位，判断是否由 FriendListControl 创建
 
         public static readonly DependencyProperty AvatarIdProperty =
-        DependencyProperty.Register(
-        "AvatarId",
-        typeof(string),
-        typeof(FriendAvatarControl),
-        new PropertyMetadata(null, OnAvatarIdChanged));
+            DependencyProperty.Register(
+                "AvatarId",
+                typeof(string),
+                typeof(FriendAvatarControl),
+                new PropertyMetadata(null, OnAvatarIdChanged));
 
         public static readonly DependencyProperty OnlineProperty =
-        DependencyProperty.Register(
-        "Online",
-        typeof(bool),
-        typeof(FriendAvatarControl),
-        new PropertyMetadata(false, OnOnlineChanged));
+            DependencyProperty.Register(
+                "Online",
+                typeof(bool),
+                typeof(FriendAvatarControl),
+                new PropertyMetadata(false, OnOnlineChanged));
 
         public static readonly DependencyProperty LinkProperty =
-        DependencyProperty.Register(
-        "Link",
-        typeof(Link),
-        typeof(FriendAvatarControl),
-        new PropertyMetadata(null));
+            DependencyProperty.Register(
+                "Link",
+                typeof(Link),
+                typeof(FriendAvatarControl),
+                new PropertyMetadata(null));
+
+        public static readonly DependencyProperty IsCreatedByFriendListControlProperty =
+            DependencyProperty.Register(
+                "IsCreatedByFriendListControl",
+                typeof(bool),
+                typeof(FriendAvatarControl),
+                new PropertyMetadata(false, OnIsCreatedByFriendListControlChanged));
 
         public string AvatarId
         {
@@ -59,6 +67,12 @@ namespace Client.Utility.FriendList
             set => SetValue(LinkProperty, value);
         }
 
+        public bool IsCreatedByFriendListControl
+        {
+            get => (bool)GetValue(IsCreatedByFriendListControlProperty);
+            set => SetValue(IsCreatedByFriendListControlProperty, value);
+        }
+
         public FriendAvatarControl()
         {
             InitializeComponent();
@@ -70,18 +84,17 @@ namespace Client.Utility.FriendList
             SetDefaultAvatar();
         }
 
+        private static void OnIsCreatedByFriendListControlChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            var control = (FriendAvatarControl)d;
+            control._isCreatedByFriendListControl = (bool)e.NewValue;
+            _ = control.LoadAvatarAsync(control.AvatarId); // 重新触发加载逻辑
+        }
+
         private static async void OnAvatarIdChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var control = (FriendAvatarControl)d;
             var newAvatarId = e.NewValue as string;
-
-            if (string.IsNullOrEmpty(newAvatarId))
-            {
-                control._logger.LogDebug("AvatarId 为空，设置默认头像");
-                control.SetDefaultAvatar();
-                return;
-            }
-
             await control.LoadAvatarAsync(newAvatarId);
         }
 
@@ -96,6 +109,14 @@ namespace Client.Utility.FriendList
         {
             try
             {
+                if (string.IsNullOrEmpty(avatarId))
+                {
+                    _logger.LogDebug("AvatarId 为空，设置默认头像");
+                    SetDefaultAvatar();
+                    return;
+                }
+
+                // 检查本地缓存
                 string avatarPath = CacheHelper.GetAvatarPath(avatarId);
                 if (avatarPath != null)
                 {
@@ -104,13 +125,64 @@ namespace Client.Utility.FriendList
                     return;
                 }
 
-                _logger.LogDebug($"头像未缓存，等待批量下载: {avatarId}");
-                // 依赖 FriendListControl 的批量下载
-                SetDefaultAvatar();
+                // 如果由 FriendListControl 创建，依赖其批量下载
+                if (_isCreatedByFriendListControl)
+                {
+                    _logger.LogDebug($"头像未缓存，等待 FriendListControl 批量下载: {avatarId}");
+                    SetDefaultAvatar();
+                }
+                else
+                {
+                    // 否则执行单独下载
+                    _logger.LogDebug($"头像未缓存，开始单独下载: {avatarId}");
+                    await DownloadAvatarAsync(avatarId);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError($"加载头像失败: {ex.Message}");
+                SetDefaultAvatar();
+            }
+        }
+
+        private async Task DownloadAvatarAsync(string avatarId)
+        {
+            try
+            {
+                if (Link == null)
+                {
+                    _logger.LogWarning("Link 未设置，无法下载头像");
+                    SetDefaultAvatar();
+                    return;
+                }
+
+                // 获取缓存路径
+                string cachePath = CacheHelper.GetAvatarPath("dummy") != null
+                    ? Path.GetDirectoryName(CacheHelper.GetAvatarPath("dummy"))
+                    : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA", "Avatars");
+                Directory.CreateDirectory(cachePath);
+
+                string savePath = Path.Combine(cachePath, avatarId);
+
+                // 调用 Link.DownloadMedia 下载头像
+                var fileRequests = new List<(string fileId, string savePath)> { (avatarId, savePath) };
+                var results = await Link.DownloadMedia(fileRequests, "avatar");
+
+                var result = results.FirstOrDefault(r => r.GetValueOrDefault("file_id")?.ToString() == avatarId);
+                if (result != null && result.GetValueOrDefault("status")?.ToString() == "success" && File.Exists(savePath))
+                {
+                    _logger.LogDebug($"头像下载成功: {avatarId}, 保存路径: {savePath}");
+                    SetAvatarFromFile(savePath);
+                }
+                else
+                {
+                    _logger.LogWarning($"头像下载失败: {avatarId}, 原因: {result?.GetValueOrDefault("message")}");
+                    SetDefaultAvatar();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"下载头像失败: {avatarId}, 错误: {ex.Message}");
                 SetDefaultAvatar();
             }
         }
