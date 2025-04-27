@@ -1,10 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using MySql.Data.MySqlClient;
-using SixLabors.Fonts;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Drawing.Processing;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using System;
 using System.Collections.Concurrent;
 using System.IO;
@@ -13,6 +8,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CaptchaGen.NetCore;
 
 namespace Server
 {
@@ -98,44 +94,31 @@ namespace Server
 
         private (string CaptchaText, string CaptchaImageBase64) GenerateCaptchaImage()
         {
-            // 生成6位验证码，包含大写字母和数字
-            var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            var captchaText = new char[6];
-            for (int i = 0; i < 6; i++)
-                captchaText[i] = chars[RandomNumberGenerator.GetInt32(chars.Length)];
-            var captchaString = new string(captchaText);
-
-            // 使用 SixLabors.ImageSharp 和 SixLabors.Fonts 生成验证码图片
-            using var image = new Image<Rgba32>(200, 80); // 宽200，高80
-            image.Mutate(ctx =>
+            try
             {
-                ctx.BackgroundColor(Color.White);
+                // 使用 CaptchaGen.NetCore 生成6位验证码
+                var captchaText = ImageFactory.CreateCode(6); // 生成6位验证码
 
-                // 加载字体
-                var fontCollection = new FontCollection();
-                var font = fontCollection.Add("C:\\Windows\\Fonts\\arial.ttf").CreateFont(36); // Windows 环境
-                var rendererOptions = new RichTextOptions(font)
+                using var memoryStream = new MemoryStream();
+                // 生成验证码图片，使用位置参数
+                using (var picStream = ImageFactory.BuildImage(
+                    captchaText, // 验证码文本
+                    80, // height，与原高度一致
+                    200, // width，与原宽度一致
+                    36, // fontSize，与原字体大小一致
+                    10)) // distortion，示例值
                 {
-                    Origin = new PointF(20, 50)
-                    // 移除 WrappingWidth，验证码为单行文本，无需换行
-                };
-
-                // 绘制验证码文字
-                ctx.DrawText(rendererOptions, captchaString, Color.Black);
-
-                // 添加干扰线
-                for (int i = 0; i < 5; i++)
-                {
-                    var start = new PointF(RandomNumberGenerator.GetInt32(200), RandomNumberGenerator.GetInt32(80));
-                    var end = new PointF(RandomNumberGenerator.GetInt32(200), RandomNumberGenerator.GetInt32(80));
-                    ctx.DrawLine(Color.Gray, 1, start, end);
+                    picStream.CopyTo(memoryStream);
                 }
-            });
 
-            using var ms = new MemoryStream();
-            image.SaveAsPng(ms);
-            var imgBase64 = Convert.ToBase64String(ms.ToArray());
-            return (captchaString, imgBase64);
+                var imgBase64 = Convert.ToBase64String(memoryStream.ToArray());
+                return (captchaText, imgBase64);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"验证码生成失败: {ex.Message}");
+                return (null, null);
+            }
         }
 
         public Dictionary<string, object> Register(Dictionary<string, object> request, Socket clientSock)

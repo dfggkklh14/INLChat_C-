@@ -82,6 +82,9 @@ namespace Client.Utility.FriendList
 
             // 在构造时立即设置默认头像
             SetDefaultAvatar();
+
+            // 强制触发初始在线状态更新
+            UpdateOnlineStatus(Online);
         }
 
         private static void OnIsCreatedByFriendListControlChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -102,6 +105,7 @@ namespace Client.Utility.FriendList
         {
             var control = (FriendAvatarControl)d;
             var isOnline = (bool)e.NewValue;
+            control._logger.LogDebug($"OnOnlineChanged: NewValue={isOnline}");
             control.UpdateOnlineStatus(isOnline);
         }
 
@@ -277,23 +281,50 @@ namespace Client.Utility.FriendList
         {
             try
             {
-                var onlineDotAnimation = (Storyboard)Resources["OnlineDotAnimation"];
-                var offlineDotAnimation = (Storyboard)Resources["OfflineDotAnimation"];
-                var onlineBorderAnimation = (Storyboard)Resources["OnlineBorderAnimation"];
-                var offlineBorderAnimation = (Storyboard)Resources["OfflineBorderAnimation"];
+                _logger.LogDebug($"UpdateOnlineStatus({isOnline})");
 
-                if (isOnline)
+                // 清除现有动画
+                OnlineDot.BeginAnimation(WidthProperty, null);
+                OnlineDot.BeginAnimation(HeightProperty, null);
+                BorderEllipse.BeginAnimation(OpacityProperty, null);
+
+                // 获取当前值
+                double fromSize = OnlineDot.Width > 0 ? OnlineDot.Width : (isOnline ? 0 : 15); // 防止从非法值开始
+                double toSize = isOnline ? 15 : 0;
+                double fromOp = BorderEllipse.Opacity > 0 ? BorderEllipse.Opacity : (isOnline ? 0 : 1);
+                double toOp = isOnline ? 1 : 0;
+
+                // 创建动画
+                var wAnim = new DoubleAnimation
                 {
-                    _logger.LogDebug("播放在线状态动画");
-                    onlineDotAnimation.Begin();
-                    onlineBorderAnimation.Begin();
-                }
-                else
+                    From = fromSize,
+                    To = toSize,
+                    Duration = TimeSpan.FromMilliseconds(300),
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+                };
+                var hAnim = new DoubleAnimation
                 {
-                    _logger.LogDebug("播放离线状态动画");
-                    offlineDotAnimation.Begin();
-                    offlineBorderAnimation.Begin();
-                }
+                    From = fromSize,
+                    To = toSize,
+                    Duration = TimeSpan.FromMilliseconds(300),
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+                };
+                var oAnim = new DoubleAnimation
+                {
+                    From = fromOp,
+                    To = toOp,
+                    Duration = TimeSpan.FromMilliseconds(300),
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+                };
+
+                // 添加完成事件以调试
+                wAnim.Completed += (s, e) => _logger.LogDebug($"Width 动画完成: from={fromSize}, to={toSize}");
+                oAnim.Completed += (s, e) => _logger.LogDebug($"Opacity 动画完成: from={fromOp}, to={toOp}");
+
+                // 应用动画
+                OnlineDot.BeginAnimation(WidthProperty, wAnim);
+                OnlineDot.BeginAnimation(HeightProperty, hAnim);
+                BorderEllipse.BeginAnimation(OpacityProperty, oAnim);
             }
             catch (Exception ex)
             {

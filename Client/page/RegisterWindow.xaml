@@ -24,7 +24,7 @@
 
         <!-- 头像和 ID -->
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Height="126" Width="100" Margin="0,25,0,0">
-            <utility:AvatarControl x:Name="AvatarWidget" Width="100" Height="100" ShowButtonOnHover="True" VerticalAlignment="Center" />
+            <utility:AvatarControl x:Name="AvatarWidget" Width="100" Height="100" ShowButtonOnHover="True" IsFromRegisterPage="True" VerticalAlignment="Center" />
             <Label x:Name="IdLabel" Content="{Binding UserId, StringFormat='ID:{0}', FallbackValue='ID:待生成'}"
                    FontFamily="Microsoft YaHei" FontSize="12" HorizontalAlignment="Center"
                    Foreground="#808080" Cursor="Hand"

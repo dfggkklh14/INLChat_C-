@@ -1,11 +1,13 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 
 namespace Client.Utility
 {
     public class StyleTextBox : TextBox
     {
+        // 现有的 TextPlaceholder 属性
         public static readonly DependencyProperty TextPlaceholderProperty =
             DependencyProperty.Register(
                 nameof(TextPlaceholder),
@@ -19,6 +21,48 @@ namespace Client.Utility
             set => SetValue(TextPlaceholderProperty, value);
         }
 
+        // 新属性：水印的水平对齐
+        public static readonly DependencyProperty WatermarkHorizontalAlignmentProperty =
+            DependencyProperty.Register(
+                nameof(WatermarkHorizontalAlignment),
+                typeof(HorizontalAlignment),
+                typeof(StyleTextBox),
+                new PropertyMetadata(HorizontalAlignment.Left)); // 默认左对齐
+
+        public HorizontalAlignment WatermarkHorizontalAlignment
+        {
+            get => (HorizontalAlignment)GetValue(WatermarkHorizontalAlignmentProperty);
+            set => SetValue(WatermarkHorizontalAlignmentProperty, value);
+        }
+
+        // 新属性：水印的垂直对齐
+        public static readonly DependencyProperty WatermarkVerticalAlignmentProperty =
+            DependencyProperty.Register(
+                nameof(WatermarkVerticalAlignment),
+                typeof(VerticalAlignment),
+                typeof(StyleTextBox),
+                new PropertyMetadata(VerticalAlignment.Center)); // 默认居中对齐
+
+        public VerticalAlignment WatermarkVerticalAlignment
+        {
+            get => (VerticalAlignment)GetValue(WatermarkVerticalAlignmentProperty);
+            set => SetValue(WatermarkVerticalAlignmentProperty, value);
+        }
+
+        // 新属性：水印的边距
+        public static readonly DependencyProperty WatermarkMarginProperty =
+            DependencyProperty.Register(
+                nameof(WatermarkMargin),
+                typeof(Thickness),
+                typeof(StyleTextBox),
+                new PropertyMetadata(new Thickness(5, 0, 0, 0))); // 默认左边距 5
+
+        public Thickness WatermarkMargin
+        {
+            get => (Thickness)GetValue(WatermarkMarginProperty);
+            set => SetValue(WatermarkMarginProperty, value);
+        }
+
         static StyleTextBox()
         {
             DefaultStyleKeyProperty.OverrideMetadata(
@@ -27,6 +71,7 @@ namespace Client.Utility
         }
     }
 
+    // StylePasswordBox 保持不变
     public class StylePasswordBox : Control
     {
         public static readonly DependencyProperty TextPlaceholderProperty =
@@ -74,7 +119,6 @@ namespace Client.Utility
             if (_passwordBox != null)
             {
                 _passwordBox.PasswordChanged += PasswordBox_PasswordChanged;
-                // 初始化 PasswordBox 的值
                 _passwordBox.Password = Password;
             }
         }

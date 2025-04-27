@@ -1,0 +1,83 @@
+﻿<UserControl x:Class="Client.Utility.ChatArea"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:Client.Utility"
+             xmlns:FriendList="clr-namespace:Client.Utility.FriendList"
+             mc:Ignorable="d"
+             d:DesignHeight="450" d:DesignWidth="800"
+             Focusable="True"
+             FocusVisualStyle="{x:Null}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/Client;component/Utility/CustomControls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <local:BoolToOnlineStatusConverter x:Key="BoolToOnlineStatusConverter"/>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="60"/>
+            <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="60"/>
+            <RowDefinition/>
+            <RowDefinition Height="70"/>
+        </Grid.RowDefinitions>
+
+        <Rectangle x:Name="OnlineBackground" Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="60" Fill="#ffffff" VerticalAlignment="Center" Width="800"/>
+        <FriendList:FriendAvatarControl HorizontalAlignment="Right" VerticalAlignment="Center"/>
+        <Grid Grid.Column="1" Height="44" VerticalAlignment="Center" Margin="10,0,0,0">
+            <Label x:Name="OnlineNameLabel" Content="{Binding Name, FallbackValue=未选择好友}" HorizontalAlignment="Left" VerticalAlignment="Top" Padding="0,0,0,0" FontWeight="Bold" FontSize="18"/>
+            <Label x:Name="OnlineLabel" Content="{Binding Online, Converter={StaticResource BoolToOnlineStatusConverter}, FallbackValue=离线}" HorizontalAlignment="Left" VerticalAlignment="Bottom" Padding="0,0,0,0" FontSize="14"/>
+        </Grid>
+        <Grid Grid.ColumnSpan="2" Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="35"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="110"/>
+            </Grid.ColumnDefinitions>
+            <local:StyleTextBox x:Name="MessageInput"
+                                TextWrapping="Wrap"
+                                TextPlaceholder="请输入消息"
+                                WatermarkHorizontalAlignment="Left"
+                                WatermarkVerticalAlignment="Top"
+                                WatermarkMargin="5,5,0,0"
+                                Padding="4"
+                                VerticalContentAlignment="Top"
+                                Grid.Column="1"
+                                KeyDown="MessageInput_KeyDown"/>
+            <Button Content="😊" VerticalAlignment="Top" Height="35"/>
+            <Button Content="+" Margin="0,36,0,0" VerticalAlignment="Bottom" Height="35" FontWeight="Bold"/>
+            <Button Content="发送" Grid.Column="2"/>
+        </Grid>
+        <ListBox x:Name="ChatAreaList"
+                 Grid.Row="1" Grid.ColumnSpan="2"
+                 HorizontalContentAlignment="Left"
+                 VerticalContentAlignment="Top">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                    <Setter Property="VerticalContentAlignment" Value="Top"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <ContentPresenter
+                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}"/>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <local:ChatBubble/>
+        </ListBox>
+    </Grid>
+</UserControl>

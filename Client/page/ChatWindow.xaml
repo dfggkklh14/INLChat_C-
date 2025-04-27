@@ -9,10 +9,10 @@
     x:Class="Client.page.ChatWindow"
     mc:Ignorable="d"
     Title="ChatWindow" 
-    Height="480" 
-    Width="600" 
-    MinWidth="600" 
-    MinHeight="480"
+    Height="600" 
+    Width="700" 
+    MinHeight="600"
+    MinWidth="700" 
     Icon="pack://application:,,,/icon/icon.png">
     <Grid x:Name="MainGrid">
         <Grid.ColumnDefinitions>
@@ -25,7 +25,7 @@
         </Grid.RowDefinitions>
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="30"/>
+                <ColumnDefinition Width="25"/>
                 <ColumnDefinition/>
             </Grid.ColumnDefinitions>
             <Button x:Name="Panl_button" Content="&lt;" FontWeight="Bold" FontSize="22"/>
@@ -34,5 +34,7 @@
             </Button>
         </Grid>
         <Avatar:FriendListControl x:Name="FriendList" Grid.Column="0" Grid.Row="1" Link="{Binding ChatClient}"/>
+        <utility:ChatArea x:Name="ChatArea" Grid.Column="1" Grid.RowSpan="2" Visibility="Collapsed"/>
+        <Image x:Name="IconImg" HorizontalAlignment="Center" Height="100" VerticalAlignment="Center" Width="100" Source="/icon/icon.png" Grid.Column="1" Grid.RowSpan="2"/>
     </Grid>
 </Window>

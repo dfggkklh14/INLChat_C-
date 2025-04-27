@@ -19,6 +19,9 @@
 
 	<ItemGroup>
 	  <None Remove="icon\icon.ico" />
+	  <None Remove="page\icon.png" />
+	  <None Remove="Utility\4_avatar_20250321190730799295_1.jpg" />
+	  <None Remove="Utility\file_icon.png" />
 	</ItemGroup>
 
 
@@ -26,6 +29,9 @@
 	    <Resource Include="icon\icon.ico">
 	      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	    </Resource>
+	    <Resource Include="page\icon.png" />
+	    <Resource Include="Utility\4_avatar_20250321190730799295_1.jpg" />
+	    <Resource Include="Utility\file_icon.png" />
 	    <Resource Include="Utility\UtilityResources.xaml" />
 	</ItemGroup>
 

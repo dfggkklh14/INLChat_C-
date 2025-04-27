@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CaptchaGen.NetCore" Version="1.1.2" />
     <PackageReference Include="Magick.NET-Q16-AnyCPU" Version="14.6.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.4" />

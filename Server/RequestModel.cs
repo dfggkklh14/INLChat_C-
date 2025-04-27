@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+﻿using Newtonsoft.Json;
 
 namespace Server
 {
@@ -7,53 +7,53 @@ namespace Server
         // 专用于 get_chat_history_paginated 请求的数据模型
         public class ChatHistory
         {
-            [JsonPropertyName("type")]
+            [JsonProperty("type")]
             public string Type { get; set; }
 
-            [JsonPropertyName("username")]
+            [JsonProperty("username")]
             public string Username { get; set; }
 
-            [JsonPropertyName("friend")]
+            [JsonProperty("friend")]
             public string Friend { get; set; }
 
-            [JsonPropertyName("page")]
+            [JsonProperty("page")]
             public int Page { get; set; } = 1;
 
-            [JsonPropertyName("page_size")]
+            [JsonProperty("page_size")]
             public int PageSize { get; set; } = 20;
 
-            [JsonPropertyName("request_id")]
+            [JsonProperty("request_id")]
             public string RequestId { get; set; }
         }
 
         // 占位符，未来可添加其他类型的嵌套类
         public class SendMessage
         {
-            [JsonPropertyName("type")]
+            [JsonProperty("type")]
             public string Type { get; set; }
 
-            [JsonPropertyName("username")]
+            [JsonProperty("username")]
             public string Username { get; set; }
 
-            [JsonPropertyName("receiver")]
+            [JsonProperty("receiver")]
             public string Receiver { get; set; }
 
-            [JsonPropertyName("message")]
+            [JsonProperty("message")]
             public string Message { get; set; }
 
-            [JsonPropertyName("request_id")]
+            [JsonProperty("request_id")]
             public string RequestId { get; set; }
         }
 
         public class GetFriends
         {
-            [JsonPropertyName("type")]
+            [JsonProperty("type")]
             public string Type { get; set; }
 
-            [JsonPropertyName("username")]
+            [JsonProperty("username")]
             public string Username { get; set; }
 
-            [JsonPropertyName("request_id")]
+            [JsonProperty("request_id")]
             public string RequestId { get; set; }
         }
     }

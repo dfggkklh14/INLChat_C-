@@ -7,34 +7,6 @@
              mc:Ignorable="d" 
              d:DesignHeight="50" d:DesignWidth="50" Width="50" Height="50"
              RenderOptions.BitmapScalingMode="HighQuality">
-    <UserControl.Resources>
-        <Storyboard x:Key="OnlineDotAnimation">
-            <DoubleAnimation Storyboard.TargetName="OnlineDot"
-                             Storyboard.TargetProperty="Width"
-                             From="0" To="15" Duration="0:0:0.3"/>
-            <DoubleAnimation Storyboard.TargetName="OnlineDot"
-                             Storyboard.TargetProperty="Height"
-                             From="0" To="15" Duration="0:0:0.3"/>
-        </Storyboard>
-        <Storyboard x:Key="OfflineDotAnimation">
-            <DoubleAnimation Storyboard.TargetName="OnlineDot"
-                             Storyboard.TargetProperty="Width"
-                             From="15" To="0" Duration="0:0:0.3"/>
-            <DoubleAnimation Storyboard.TargetName="OnlineDot"
-                             Storyboard.TargetProperty="Height"
-                             From="15" To="0" Duration="0:0:0.3"/>
-        </Storyboard>
-        <Storyboard x:Key="OnlineBorderAnimation">
-            <DoubleAnimation Storyboard.TargetName="BorderEllipse"
-                             Storyboard.TargetProperty="Opacity"
-                             From="0" To="1" Duration="0:0:0.3"/>
-        </Storyboard>
-        <Storyboard x:Key="OfflineBorderAnimation">
-            <DoubleAnimation Storyboard.TargetName="BorderEllipse"
-                             Storyboard.TargetProperty="Opacity"
-                             From="1" To="0" Duration="0:0:0.3"/>
-        </Storyboard>
-    </UserControl.Resources>
     <Grid>
         <Ellipse x:Name="AvatarEllipse">
             <Ellipse.Fill>

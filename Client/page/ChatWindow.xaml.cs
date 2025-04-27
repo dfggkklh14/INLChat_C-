@@ -27,11 +27,8 @@ namespace Client.page
 
             InitializeComponent();
 
-            // 设置 DataContext 以支持 XAML 绑定
             DataContext = this;
-
             Loaded += ChatWindow_Loaded;
-
             _logger.LogDebug("ChatWindow 构造函数完成");
         }
 

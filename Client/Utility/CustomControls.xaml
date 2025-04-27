@@ -11,12 +11,13 @@
                     <Grid>
                         <TextBox x:Name="PART_TextBox"
                                  Text="{Binding Text, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
-                                 VerticalContentAlignment="Center"/>
+                                 VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"/>
                         <TextBlock x:Name="PART_Watermark"
                                    Text="{TemplateBinding TextPlaceholder}"
                                    Foreground="Gray"
-                                   VerticalAlignment="Center"
-                                   Margin="5,0,0,0"
+                                   HorizontalAlignment="{TemplateBinding WatermarkHorizontalAlignment}"
+                                   VerticalAlignment="{TemplateBinding WatermarkVerticalAlignment}"
+                                   Margin="{TemplateBinding WatermarkMargin}"
                                    Visibility="Collapsed"
                                    IsHitTestVisible="False"/>
                     </Grid>

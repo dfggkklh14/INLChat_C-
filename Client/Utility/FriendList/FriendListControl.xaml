@@ -18,8 +18,10 @@
              ItemsSource="{Binding Friends, RelativeSource={RelativeSource AncestorType=UserControl}}"
              ScrollViewer.VerticalScrollBarVisibility="Auto"
              VirtualizingStackPanel.IsVirtualizing="True"
-             VirtualizingStackPanel.VirtualizationMode="Recycling"
-             HorizontalContentAlignment="Stretch">
+             VirtualizingStackPanel.VirtualizationMode="Standard"
+             HorizontalContentAlignment="Stretch"
+             SelectionChanged="FriendListBox_SelectionChanged"
+             KeyDown="FriendListBox_KeyDown">
         <ListBox.ItemsPanel>
             <ItemsPanelTemplate>
                 <VirtualizingStackPanel/>
@@ -28,6 +30,8 @@
         <ListBox.ItemContainerStyle>
             <Style TargetType="ListBoxItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Focusable" Value="True"/>
+                <Setter Property="IsHitTestVisible" Value="True"/>
             </Style>
         </ListBox.ItemContainerStyle>
         <ListBox.ItemTemplate>
@@ -42,7 +46,8 @@
                           HorizontalAlignment="Center"
                           VerticalAlignment="Center"
                           AvatarId="{Binding AvatarId}"
-                          Online="{Binding Online}"/>
+                          Online="{Binding Online}"
+                          IsHitTestVisible="False"/>
                     <Grid Grid.Column="1" HorizontalAlignment="Stretch" Margin="10,0,0,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>

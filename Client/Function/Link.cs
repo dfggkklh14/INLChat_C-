@@ -930,16 +930,36 @@ namespace Client.Function
         { "request_id", Guid.NewGuid().ToString() }
     };
             var resp = await SendRequest(req);
+            _logger.LogDebug($"GetChatHistoryPaginated: 原始响应: {JsonConvert.SerializeObject(resp)}");
             var parsedResp = await ParseResponse(resp);
 
-            foreach (var entry in parsedResp["data"] as List<Dictionary<string, object>>)
+            _logger.LogDebug($"GetChatHistoryPaginated: 解析后响应: {JsonConvert.SerializeObject(parsedResp)}");
+            var data = parsedResp["data"] as List<Dictionary<string, object>>;
+            if (data == null)
+            {
+                _logger.LogError("parsedResp['data'] 类型错误，非 List<Dictionary<string, object>>");
+                return new Dictionary<string, object>
+        {
+            { "status", "error" },
+            { "message", "聊天记录数据格式错误" },
+            { "request_id", parsedResp.GetValueOrDefault("request_id") }
+        };
+            }
+
+            foreach (var entry in data)
             {
                 if (entry.ContainsKey("file_id") && new[] { "image", "video" }.Contains(entry.GetValueOrDefault("attachment_type")?.ToString()))
                 {
-                    string fileId = entry["file_id"].ToString();
+                    string fileId = entry["file_id"]?.ToString();
+                    if (string.IsNullOrEmpty(fileId))
+                    {
+                        _logger.LogWarning($"file_id 为空，跳过缩略图下载: {JsonConvert.SerializeObject(entry)}");
+                        continue;
+                    }
                     string savePath = Path.Combine(_thumbnailDir, $"{fileId}_thumbnail");
                     if (!File.Exists(savePath) || new FileInfo(savePath).Length == 0)
                     {
+                        _logger.LogDebug($"开始下载缩略图: file_id={fileId}, savePath={savePath}");
                         var results = await DownloadMedia(
                             new List<(string, string)> { (fileId, savePath) },
                             "thumbnail",
@@ -1412,29 +1432,62 @@ namespace Client.Function
 
         public async Task<Dictionary<string, object>> ParseResponse(Dictionary<string, object> resp)
         {
-            var history = (resp.GetValueOrDefault("chat_history") as List<object>)?.Cast<Dictionary<string, object>>().ToList() ?? new List<Dictionary<string, object>>();
+            _logger.LogDebug($"ParseResponse: 原始响应: {JsonConvert.SerializeObject(resp)}");
+            if (!resp.ContainsKey("chat_history") || resp["chat_history"] == null)
+            {
+                _logger.LogWarning("chat_history 字段缺失或为 null");
+                return new Dictionary<string, object>
+        {
+            { "type", "chat_history" },
+            { "data", new List<Dictionary<string, object>>() },
+            { "request_id", resp.GetValueOrDefault("request_id") },
+            { "errors", new List<Dictionary<string, object>> { new Dictionary<string, object> { { "error", "chat_history 缺失" } } } }
+        };
+            }
+
+            var history = resp["chat_history"] as List<object> ?? (resp["chat_history"] as JArray)?.ToObject<List<object>>();
+            if (history == null)
+            {
+                _logger.LogWarning($"chat_history 类型错误: {resp["chat_history"]?.GetType().Name}");
+                return new Dictionary<string, object>
+        {
+            { "type", "chat_history" },
+            { "data", new List<Dictionary<string, object>>() },
+            { "request_id", resp.GetValueOrDefault("request_id") },
+            { "errors", new List<Dictionary<string, object>> { new Dictionary<string, object> { { "error", "chat_history 类型错误" } } } }
+        };
+            }
+
             var parsed = new List<Dictionary<string, object>>();
             var errors = new List<Dictionary<string, object>>();
-            foreach (var entry in history)
+            foreach (var entryObj in history)
             {
+                var entry = entryObj as Dictionary<string, object> ?? (entryObj as JObject)?.ToObject<Dictionary<string, object>>();
+                if (entry == null)
+                {
+                    _logger.LogWarning($"聊天记录条目类型错误: {entryObj?.GetType().Name}");
+                    errors.Add(new Dictionary<string, object> { { "entry", entryObj }, { "error", "条目类型错误" } });
+                    continue;
+                }
+
                 try
                 {
                     var parsedEntry = new Dictionary<string, object>
-                    {
-                        { "rowid", entry.GetValueOrDefault("rowid") },
-                        { "write_time", entry.GetValueOrDefault("write_time") },
-                        { "sender_username", entry.GetValueOrDefault("username") },
-                        { "message", entry.GetValueOrDefault("message") ?? "" },
-                        { "is_current_user", entry.GetValueOrDefault("username")?.ToString() == _username },
-                        { "reply_to", entry.GetValueOrDefault("reply_to") },
-                        { "reply_preview", entry.GetValueOrDefault("reply_preview") }
-                    };
+            {
+                { "rowid", entry.GetValueOrDefault("rowid") },
+                { "write_time", entry.GetValueOrDefault("write_time")?.ToString() },
+                { "sender_username", entry.GetValueOrDefault("username")?.ToString() },
+                { "message", entry.GetValueOrDefault("message")?.ToString() ?? "" },
+                { "is_current_user", entry.GetValueOrDefault("username")?.ToString() == _username },
+                { "reply_to", entry.GetValueOrDefault("reply_to") },
+                { "reply_preview", entry.GetValueOrDefault("reply_preview") }
+            };
                     if (entry.ContainsKey("attachment_type"))
                     {
-                        parsedEntry["attachment_type"] = entry.GetValueOrDefault("attachment_type");
-                        parsedEntry["file_id"] = entry.GetValueOrDefault("file_id");
-                        parsedEntry["original_file_name"] = entry.GetValueOrDefault("original_file_name");
-                        parsedEntry["thumbnail_path"] = entry.GetValueOrDefault("thumbnail_path");
+                        parsedEntry["attachment_type"] = entry.GetValueOrDefault("attachment_type")?.ToString();
+                        parsedEntry["file_id"] = entry.GetValueOrDefault("file_id")?.ToString();
+                        parsedEntry["original_file_name"] = entry.GetValueOrDefault("original_file_name")?.ToString();
+                        parsedEntry["thumbnail_path"] = entry.GetValueOrDefault("thumbnail_path")?.ToString();
                         parsedEntry["file_size"] = entry.GetValueOrDefault("file_size");
                         parsedEntry["duration"] = entry.GetValueOrDefault("duration");
                     }
@@ -1442,17 +1495,20 @@ namespace Client.Function
                 }
                 catch (Exception ex)
                 {
+                    _logger.LogError($"解析聊天记录条目失败: {ex.Message}, 条目: {JsonConvert.SerializeObject(entry)}, StackTrace: {ex.StackTrace}");
                     errors.Add(new Dictionary<string, object> { { "entry", entry }, { "error", ex.Message } });
                 }
             }
+
             var res = new Dictionary<string, object>
-            {
-                { "type", "chat_history" },
-                { "data", parsed },
-                { "request_id", resp.GetValueOrDefault("request_id") }
-            };
+    {
+        { "type", "chat_history" },
+        { "data", parsed },
+        { "request_id", resp.GetValueOrDefault("request_id") }
+    };
             if (errors.Any())
             {
+                _logger.LogWarning($"解析聊天记录包含错误: {JsonConvert.SerializeObject(errors)}");
                 res["errors"] = errors;
             }
             return res;
