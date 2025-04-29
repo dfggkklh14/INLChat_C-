@@ -30,9 +30,7 @@ namespace Client.Function
         private readonly SemaphoreSlim _lock;
         private readonly string _cacheRoot;
         private readonly string _avatarDir;
-        private readonly string _thumbnailDir;
         private bool _isAuthenticated;
-        private string _username;
         private Task _readerTask;
         private Task _registerTask;
         private bool _registerActive;
@@ -43,6 +41,8 @@ namespace Client.Function
         public string CurrentFriend;
         public List<Dictionary<string, object>> Friends;
         public Dictionary<string, int> UnreadMessages;
+        public string _username;
+        public readonly string _thumbnailDir;
 
         // 事件（对应 Python 的 pyqtSignal）
         public event Action<List<Dictionary<string, object>>> FriendListUpdated;
@@ -84,12 +84,10 @@ namespace Client.Function
             };
                     string defaultConfigJson = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
                     File.WriteAllText(configPath, defaultConfigJson);
-                    _logger.LogInformation($"已创建默认 config.json 文件: {configPath}");
                     _cacheRoot = defaultConfig["cache_path"];
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"创建 config.json 文件失败: {ex.Message}");
                     _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
                 }
             }
@@ -103,7 +101,6 @@ namespace Client.Function
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"读取 config.json 文件失败: {ex.Message}");
                     _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
                 }
             }
@@ -125,12 +122,10 @@ namespace Client.Function
             try
             {
                 var keyBytes = File.ReadAllBytes(keyFile);
-                _logger.LogInformation("成功加载加密密钥，长度: {0}", keyBytes.Length);
                 return keyBytes;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "无法加载加密密钥");
                 throw new InvalidOperationException("无法加载加密密钥。", ex);
             }
         }
@@ -152,13 +147,11 @@ namespace Client.Function
                 cs.FlushFinalBlock();
             }
             byte[] result = ms.ToArray();
-            _logger.LogDebug($"加密后数据长度: {result.Length}");
             return result;
         }
 
         private Dictionary<string, object> Decrypt(byte[] cipherText)
         {
-            _logger.LogDebug($"解密数据长度: {cipherText.Length}");
             using var aes = Aes.Create();
             aes.Key = _encryptionKey;
             byte[] iv = new byte[16];
@@ -183,28 +176,10 @@ namespace Client.Function
             _readerTask = Task.Run(() => StartReader());
         }
 
-        private async Task InitConnection()
-        {
-            if (_clientSocket != null)
-            {
-                try
-                {
-                    _clientSocket.Close();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"清理旧 socket 时出错: {ex.Message}");
-                }
-                _clientSocket = null;
-            }
-            await Connect();
-        }
-
         public async Task Connect()
         {
             if (_clientSocket != null && _clientSocket.Connected)
             {
-                _logger.LogDebug("已有有效连接，无需重新连接");
                 return;
             }
 
@@ -234,7 +209,6 @@ namespace Client.Function
                     await _clientSocket.ConnectAsync(_config["host"].ToString(), Convert.ToInt32(_config["port"]));
                     _stream = _clientSocket.GetStream();
                     _isRunning = true;
-                    _logger.LogInformation("成功连接到服务器");
                     return;
                 }
                 catch (Exception ex)
@@ -341,7 +315,6 @@ namespace Client.Function
             };
             if (_clientSocket == null)
             {
-                _logger.LogError("认证失败：socket 未初始化");
                 return "连接未建立";
             }
             try
@@ -357,7 +330,6 @@ namespace Client.Function
             }
             catch (Exception ex)
             {
-                _logger.LogError($"认证请求失败: {ex.Message}");
                 if (_clientSocket != null)
                 {
                     try
@@ -408,13 +380,11 @@ namespace Client.Function
                 {
                     if (_clientSocket == null || !_clientSocket.Connected || _stream == null)
                     {
-                        _logger.LogDebug("连接不可用，退出 StartReader");
                         break;
                     }
                     byte[] header = await RecvAsync(4);
                     if (header.Length < 4)
                     {
-                        _logger.LogWarning("收到不完整的头部");
                         continue;
                     }
                     int length = BitConverter.ToInt32(header.Reverse().ToArray(), 0);
@@ -422,7 +392,6 @@ namespace Client.Function
                     var resp = Decrypt(encryptedPayload);
                     if (resp == null)
                     {
-                        _logger.LogWarning("解密后响应为 null，跳过");
                         continue;
                     }
 
@@ -438,7 +407,6 @@ namespace Client.Function
                     string responseType = resp["type"].ToString();
                     if (!_isAuthenticated && responseType != "user_register" && responseType != "exit")
                     {
-                        _logger.LogDebug($"未认证，忽略消息类型: {responseType}");
                         continue;
                     }
 
@@ -451,7 +419,6 @@ namespace Client.Function
                             _pendingRequests[reqId].SetResult(resp);
                             _pendingRequests.Remove(reqId);
                         }
-                        _logger.LogInformation("收到服务器 exit 响应，退出 StartReader");
                         break;
                     }
 
@@ -482,10 +449,6 @@ namespace Client.Function
                         _pendingRequests[requestId].SetResult(resp);
                         _pendingRequests.Remove(requestId);
                     }
-                    else
-                    {
-                        _logger.LogDebug($"未知或无需 request_id 的消息类型: {responseType}");
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -507,7 +470,6 @@ namespace Client.Function
                 var friendsObj = resp.GetValueOrDefault("friends");
                 if (friendsObj == null)
                 {
-                    _logger.LogWarning("friend_list_update 消息缺少 friends 字段");
                     Friends = new List<Dictionary<string, object>>();
                 }
                 else
@@ -575,7 +537,6 @@ namespace Client.Function
             }
             else
             {
-                _logger.LogWarning($"未知的对象类型: {item?.GetType().Name}");
                 return new Dictionary<string, object>();
             }
 
@@ -591,7 +552,6 @@ namespace Client.Function
                 }
                 else
                 {
-                    _logger.LogWarning($"conversations 字段类型未知: {result["conversations"].GetType().Name}");
                     result["conversations"] = new Dictionary<string, object>();
                 }
             }
@@ -609,13 +569,11 @@ namespace Client.Function
                     byte[] header = await RecvAsync(4);
                     if (header.Length < 4)
                     {
-                        _logger.LogWarning("RegisterReader: 接收到不完整的头部");
                         continue;
                     }
                     int length = BitConverter.ToInt32(header.Reverse().ToArray(), 0);
                     byte[] encryptedPayload = await RecvAsync(length);
                     var resp = Decrypt(encryptedPayload);
-                    _logger.LogDebug($"RegisterReader 收到响应: {JsonConvert.SerializeObject(resp)}");
 
                     string responseType = resp.GetValueOrDefault("type")?.ToString();
                     string reqId = resp.GetValueOrDefault("request_id")?.ToString();
@@ -682,7 +640,6 @@ namespace Client.Function
             }
             catch (Exception ex)
             {
-                _logger.LogError($"连接服务器失败: {ex.Message}");
                 return new Dictionary<string, object> { { "status", "error" }, { "message", "无法连接到服务器，请检查网络后重试" } };
             }
 
@@ -929,11 +886,12 @@ namespace Client.Function
         { "page_size", pageSize },
         { "request_id", Guid.NewGuid().ToString() }
     };
+
             var resp = await SendRequest(req);
-            _logger.LogDebug($"GetChatHistoryPaginated: 原始响应: {JsonConvert.SerializeObject(resp)}");
             var parsedResp = await ParseResponse(resp);
 
             _logger.LogDebug($"GetChatHistoryPaginated: 解析后响应: {JsonConvert.SerializeObject(parsedResp)}");
+
             var data = parsedResp["data"] as List<Dictionary<string, object>>;
             if (data == null)
             {
@@ -945,33 +903,51 @@ namespace Client.Function
             { "request_id", parsedResp.GetValueOrDefault("request_id") }
         };
             }
-
+            var thumbnailsToDownload = new List<(string fileId, string savePath)>();
             foreach (var entry in data)
             {
-                if (entry.ContainsKey("file_id") && new[] { "image", "video" }.Contains(entry.GetValueOrDefault("attachment_type")?.ToString()))
+                if (entry.TryGetValue("file_id", out var fidObj) &&
+                    new[] { "image", "video" }.Contains(entry.GetValueOrDefault("attachment_type")?.ToString()))
                 {
-                    string fileId = entry["file_id"]?.ToString();
+                    var fileId = fidObj?.ToString();
                     if (string.IsNullOrEmpty(fileId))
                     {
                         _logger.LogWarning($"file_id 为空，跳过缩略图下载: {JsonConvert.SerializeObject(entry)}");
                         continue;
                     }
-                    string savePath = Path.Combine(_thumbnailDir, $"{fileId}_thumbnail");
+
+                    var savePath = Path.Combine(_thumbnailDir, fileId);
+                    entry["thumbnail_local_path"] = savePath;
+
                     if (!File.Exists(savePath) || new FileInfo(savePath).Length == 0)
                     {
-                        _logger.LogDebug($"开始下载缩略图: file_id={fileId}, savePath={savePath}");
-                        var results = await DownloadMedia(
-                            new List<(string, string)> { (fileId, savePath) },
-                            "thumbnail",
-                            null
-                        );
-                        if (results.FirstOrDefault()?.GetValueOrDefault("status")?.ToString() != "success")
+                        thumbnailsToDownload.Add((fileId, savePath));
+                    }
+                }
+            }
+            if (thumbnailsToDownload.Any())
+            {
+                _logger.LogDebug($"后台启动批量下载缩略图，共 {thumbnailsToDownload.Count} 个");
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var results = await DownloadMedia(thumbnailsToDownload, "thumbnail");
+                        foreach (var result in results)
                         {
-                            _logger.LogError($"缩略图下载失败: file_id={fileId}, message={results.FirstOrDefault()?.GetValueOrDefault("message")}");
+                            if (result.GetValueOrDefault("status")?.ToString() != "success")
+                            {
+                                var badId = result.GetValueOrDefault("file_id")?.ToString();
+                                var reason = result.GetValueOrDefault("reason")?.ToString() ?? result.GetValueOrDefault("message");
+                                _logger.LogError($"缩略图下载失败: file_id={badId}, reason={reason}");
+                            }
                         }
                     }
-                    entry["thumbnail_local_path"] = savePath;
-                }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError($"后台缩略图下载任务异常: {ex.Message}");
+                    }
+                });
             }
             return parsedResp;
         }
@@ -1239,23 +1215,17 @@ namespace Client.Function
         /// 简化后的客户端下载方法，保留原始签名及辅助函数，实现初始化、单次与分块下载。
         /// </summary>
         public async Task<List<Dictionary<string, object>>> DownloadMedia(
-            List<(string fileId, string savePath)> fileRequests,
-            string downloadType = "default",
-            Action<string, double, string> progressCallback = null)
+    List<(string fileId, string savePath)> fileRequests,
+    string downloadType = "default",
+    Action<string, double, string> progressCallback = null)
         {
             var results = new List<Dictionary<string, object>>();
-            if (fileRequests == null || fileRequests.Count == 0)
+            if (fileRequests == null || fileRequests.Count == 0 || _clientSocket?.Connected != true || _stream == null)
             {
-                _logger.LogWarning("下载请求列表为空");
-                return results;
-            }
-            if (_clientSocket?.Connected != true || _stream == null)
-            {
-                _logger.LogError("连接不可用，无法下载");
                 return results;
             }
 
-            // 1. 初始化，获取所有文件大小和校验和
+            // —— Step A: 初始化阶段 ——
             var initReq = new Dictionary<string, object>
             {
                 ["type"] = "download_media",
@@ -1263,122 +1233,258 @@ namespace Client.Function
                 ["download_type"] = downloadType,
                 ["request_id"] = Guid.NewGuid().ToString()
             };
+
             var initResp = await SendRequestAsync(initReq);
             if (initResp.GetValueOrDefault("status")?.ToString() != "success")
             {
-                _logger.LogError($"下载初始化失败: {initResp.GetValueOrDefault("message")}");
+                _logger.LogError($"下载初始化失败: {initResp.GetValueOrDefault("message")} ");
                 return results;
             }
-            var fileSizes = JsonConvert.DeserializeObject<Dictionary<string, long>>(initResp["file_sizes"].ToString());
-            var fileChecksums = JsonConvert.DeserializeObject<Dictionary<string, string>>(initResp["file_checksums"].ToString());
 
-            // 2. 根据文件大小选择下载方式
-            const long SingleThreshold = 1024 * 1024; // 1MB
+            // —— Step B: 防御式读取 file_sizes 和 file_checksums ——
+            if (!initResp.TryGetValue("file_sizes", out var sizesToken) ||
+                !initResp.TryGetValue("file_checksums", out var checksToken))
+            {
+                _logger.LogError("初始化响应缺少 file_sizes 或 file_checksums");
+                return results;
+            }
+
+            var fileSizes = JsonConvert.DeserializeObject<Dictionary<string, long>>(sizesToken.ToString());
+            var fileChecksums = JsonConvert.DeserializeObject<Dictionary<string, string>>(checksToken.ToString());
+
+            // 遍历每个文件进行下载
             foreach (var (fileId, savePath) in fileRequests)
             {
                 string tempPath = savePath + ".tmp";
                 Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-                long expectedSize = fileSizes.TryGetValue(fileId, out var sz) ? sz : 0;
-                bool singleRequest = expectedSize > 0 && expectedSize <= SingleThreshold;
 
-                bool success = singleRequest
-                    ? await DownloadSingleAsync(fileId, tempPath, downloadType)
-                    : await DownloadChunksAsync(fileId, tempPath, downloadType, progressCallback);
+                bool isSuccess = false;
+                string failReason = null;
 
-                if (success && ValidateFile(tempPath, expectedSize, fileChecksums, fileId))
+                try
                 {
-                    File.Move(tempPath, savePath, true);
-                    _logger.LogInformation($"下载成功: {fileId} -> {savePath}");
-                    results.Add(new Dictionary<string, object>
+                    long expectedSize = fileSizes.TryGetValue(fileId, out var sz) ? sz : 0;
+                    // 根据文件大小决定：<= 1MB 使用一次性下载，否则分块下载
+                    bool useSingleRequest = expectedSize > 0 && expectedSize <= 1024 * 1024;
+
+                    _logger.LogDebug($"准备下载文件: {fileId}, useSingleRequest={useSingleRequest}, 目标路径: {savePath}");
+
+                    if (useSingleRequest)
                     {
-                        ["status"] = "success",
-                        ["file_id"] = fileId,
-                        ["save_path"] = savePath
-                    });
+                        isSuccess = await DownloadSingleAsync(fileId, tempPath, downloadType);
+                    }
+                    else
+                    {
+                        isSuccess = await DownloadChunksAsync(fileId, tempPath, downloadType, progressCallback);
+                    }
+
+                    // 验证下载结果
+                    if (isSuccess)
+                    {
+                        bool valid = ValidateFile(tempPath, expectedSize, fileChecksums, fileId);
+                        if (!valid)
+                        {
+                            isSuccess = false;
+                            failReason = "文件校验失败";
+                        }
+                    }
+
+                    // 成功则移动到最终路径，否则记录失败
+                    if (isSuccess)
+                    {
+                        File.Move(tempPath, savePath, true);
+                        _logger.LogInformation($"文件下载成功: {fileId} -> {savePath}");
+                        results.Add(new Dictionary<string, object>
+                        {
+                            ["status"] = "success",
+                            ["file_id"] = fileId,
+                            ["save_path"] = savePath
+                        });
+                    }
+                    else
+                    {
+                        if (File.Exists(tempPath)) File.Delete(tempPath);
+                        _logger.LogWarning($"文件下载失败: {fileId}, 原因: {failReason}");
+                        results.Add(new Dictionary<string, object>
+                        {
+                            ["status"] = "error",
+                            ["file_id"] = fileId,
+                            ["reason"] = failReason ?? "下载过程失败"
+                        });
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
+                    _logger.LogError($"下载文件 {fileId} 异常: {ex.Message}");
                     if (File.Exists(tempPath)) File.Delete(tempPath);
                     results.Add(new Dictionary<string, object>
                     {
                         ["status"] = "error",
-                        ["file_id"] = fileId
+                        ["file_id"] = fileId,
+                        ["reason"] = ex.Message
                     });
                 }
             }
+
             return results;
         }
 
         // 通用发送请求并等待响应
         private async Task<Dictionary<string, object>> SendRequestAsync(Dictionary<string, object> payload)
         {
-            var requestId = payload["request_id"].ToString();
+            string requestId = payload["request_id"].ToString();
             var tcs = new TaskCompletionSource<Dictionary<string, object>>();
             _pendingRequests[requestId] = tcs;
-            var data = PackMessage(Encrypt(payload));
-            await _sendLock.WaitAsync();
-            try { await _stream.WriteAsync(data, 0, data.Length); }
-            finally { _sendLock.Release(); }
 
-            var timeout = Task.Delay(30000);
-            var completed = await Task.WhenAny(tcs.Task, timeout);
+            var data = PackMessage(Encrypt(payload));
+
+            await _sendLock.WaitAsync();
+            try
+            {
+                await _stream.WriteAsync(data, 0, data.Length);
+                _logger.LogDebug($"请求发送成功，RequestId={requestId}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"发送请求失败: {ex.Message}");
+                _pendingRequests.Remove(requestId);
+                return new Dictionary<string, object> { ["status"] = "error", ["message"] = "发送失败" };
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+
+            var timeoutTask = Task.Delay(30000); // 30秒超时
+            var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
+
             _pendingRequests.Remove(requestId);
-            return completed == tcs.Task
-                ? await tcs.Task
-                : new Dictionary<string, object> { ["status"] = "error", ["message"] = "请求超时" };
+
+            if (completedTask == tcs.Task)
+            {
+                return await tcs.Task;
+            }
+            else
+            {
+                _logger.LogError($"请求超时: RequestId={requestId}");
+                return new Dictionary<string, object> { ["status"] = "error", ["message"] = "请求超时" };
+            }
         }
+
 
         // 一次性下载小文件
         private async Task<bool> DownloadSingleAsync(string fileId, string tempPath, string downloadType)
         {
-            var req = new Dictionary<string, object>
-            {
-                ["type"] = "download_media",
-                ["file_id"] = fileId,
-                ["download_type"] = downloadType,
-                ["request_id"] = Guid.NewGuid().ToString(),
-                ["single_request"] = true
-            };
-            var resp = await SendRequestAsync(req);
-            if (resp.GetValueOrDefault("status")?.ToString() != "success") return false;
-            var dataB64 = resp.GetValueOrDefault("file_data")?.ToString() ?? string.Empty;
-            await File.WriteAllBytesAsync(tempPath, Convert.FromBase64String(dataB64));
-            return true;
-        }
-
-        // 分块下载大文件
-        private async Task<bool> DownloadChunksAsync(
-            string fileId,
-            string tempPath,
-            string downloadType,
-            Action<string, double, string> progressCallback)
-        {
-            long offset = 0;
-            while (true)
+            try
             {
                 var req = new Dictionary<string, object>
                 {
                     ["type"] = "download_media",
                     ["file_id"] = fileId,
-                    ["offset"] = offset,
                     ["download_type"] = downloadType,
-                    ["request_id"] = Guid.NewGuid().ToString()
+                    ["request_id"] = Guid.NewGuid().ToString(),
+                    ["single_request"] = true
                 };
+
                 var resp = await SendRequestAsync(req);
-                if (resp.GetValueOrDefault("status")?.ToString() != "success") return false;
-                var chunk = Convert.FromBase64String(resp.GetValueOrDefault("file_data")?.ToString() ?? string.Empty);
-                if (chunk.Length > 0)
+
+                if (resp.GetValueOrDefault("status")?.ToString() != "success")
                 {
+                    _logger.LogError($"单请求下载失败: {resp.GetValueOrDefault("message")}");
+                    return false;
+                }
+
+                var base64Data = resp.GetValueOrDefault("file_data")?.ToString();
+                if (string.IsNullOrEmpty(base64Data))
+                {
+                    _logger.LogError("单请求返回数据为空");
+                    return false;
+                }
+
+                await File.WriteAllBytesAsync(tempPath, Convert.FromBase64String(base64Data));
+                _logger.LogDebug($"单请求下载完成: {fileId}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"单请求下载异常: {ex.Message}");
+                return false;
+            }
+        }
+
+
+        // 分块下载大文件
+        private async Task<bool> DownloadChunksAsync(
+        string fileId,
+        string tempPath,
+        string downloadType,
+        Action<string, double, string> progressCallback)
+        {
+            long offset = 0;
+
+            try
+            {
+                while (true)
+                {
+                    var req = new Dictionary<string, object>
+                    {
+                        ["type"] = "download_media",
+                        ["file_id"] = fileId,
+                        ["offset"] = offset,
+                        ["download_type"] = downloadType,
+                        ["request_id"] = Guid.NewGuid().ToString()
+                    };
+
+                    var resp = await SendRequestAsync(req);
+
+                    if (resp.GetValueOrDefault("status")?.ToString() != "success")
+                    {
+                        _logger.LogError($"分块下载失败: {resp.GetValueOrDefault("message")}");
+                        return false;
+                    }
+
+                    var base64Chunk = resp.GetValueOrDefault("file_data")?.ToString();
+                    if (string.IsNullOrEmpty(base64Chunk))
+                    {
+                        _logger.LogError("收到空块数据");
+                        return false;
+                    }
+
+                    byte[] chunk = Convert.FromBase64String(base64Chunk);
+
                     await using var fs = new FileStream(tempPath, FileMode.OpenOrCreate, FileAccess.Write);
                     fs.Seek(offset, SeekOrigin.Begin);
                     await fs.WriteAsync(chunk, 0, chunk.Length);
+
                     offset += chunk.Length;
+
+                    bool isComplete = Convert.ToBoolean(resp.GetValueOrDefault("is_complete") ?? false);
+
+                    // 进度回调
+                    if (progressCallback != null && resp.TryGetValue("progress", out var progressValue))
+                    {
+                        if (double.TryParse(progressValue?.ToString(), out double progress))
+                        {
+                            progressCallback(fileId, progress, tempPath);
+                        }
+                    }
+
+                    if (isComplete)
+                    {
+                        _logger.LogDebug($"分块下载完成: {fileId}");
+                        break;
+                    }
                 }
-                bool isComplete = Convert.ToBoolean(resp.GetValueOrDefault("is_complete") ?? false);
-                if (isComplete) break;
+
+                return true;
             }
-            return true;
+            catch (Exception ex)
+            {
+                _logger.LogError($"分块下载异常: {ex.Message}");
+                return false;
+            }
         }
+
 
         // 校验文件完整性与合法性
         private bool ValidateFile(
@@ -1410,9 +1516,13 @@ namespace Client.Function
             try
             {
                 using var fs = File.OpenRead(path);
-                byte[] header = new byte[2];
-                fs.Read(header, 0, 2);
-                return header[0] == 0xFF && header[1] == 0xD8;
+                byte[] header = new byte[4];
+                fs.Read(header, 0, 4);
+                // JPEG: FF D8
+                if (header[0] == 0xFF && header[1] == 0xD8) return true;
+                // PNG: 89 50 4E 47
+                if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return true;
+                return false;
             }
             catch { return false; }
         }
@@ -1432,7 +1542,6 @@ namespace Client.Function
 
         public async Task<Dictionary<string, object>> ParseResponse(Dictionary<string, object> resp)
         {
-            _logger.LogDebug($"ParseResponse: 原始响应: {JsonConvert.SerializeObject(resp)}");
             if (!resp.ContainsKey("chat_history") || resp["chat_history"] == null)
             {
                 _logger.LogWarning("chat_history 字段缺失或为 null");

@@ -5,6 +5,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:local="clr-namespace:Client.page"
     xmlns:utility="clr-namespace:Client.Utility"
+    xmlns:Chat="clr-namespace:Client.Utility.Chat"
     xmlns:Avatar="clr-namespace:Client.Utility.FriendList"
     x:Class="Client.page.ChatWindow"
     mc:Ignorable="d"
@@ -34,7 +35,7 @@
             </Button>
         </Grid>
         <Avatar:FriendListControl x:Name="FriendList" Grid.Column="0" Grid.Row="1" Link="{Binding ChatClient}"/>
-        <utility:ChatArea x:Name="ChatArea" Grid.Column="1" Grid.RowSpan="2" Visibility="Collapsed"/>
+        <Chat:ChatArea x:Name="ChatArea" Grid.Column="1" Grid.RowSpan="2" Visibility="Collapsed"/>
         <Image x:Name="IconImg" HorizontalAlignment="Center" Height="100" VerticalAlignment="Center" Width="100" Source="/icon/icon.png" Grid.Column="1" Grid.RowSpan="2"/>
     </Grid>
 </Window>

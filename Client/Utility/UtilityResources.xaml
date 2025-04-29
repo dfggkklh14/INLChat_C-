@@ -7,7 +7,7 @@
     <Style x:Key="LoadingSpinnerStyle" TargetType="Ellipse">
         <Setter Property="Width" Value="40"/>
         <Setter Property="Height" Value="40"/>
-        <Setter Property="Stroke" Value="White"/>
+        <Setter Property="Stroke" Value="#4aa36c"/>
         <Setter Property="StrokeThickness" Value="4"/>
         <Setter Property="StrokeDashArray" Value="3,1"/>
         <Setter Property="StrokeDashCap" Value="Round"/>
@@ -30,6 +30,25 @@
                 </BeginStoryboard>
             </EventTrigger>
         </Style.Triggers>
+    </Style>
+
+    <!-- 新增圆角矩形占位符样式 -->
+    <Style x:Key="ImagePlaceholderStyle" TargetType="Border">
+        <Setter Property="Width" Value="200"/>
+        <Setter Property="Height" Value="300"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Background">
+            <Setter.Value>
+                <SolidColorBrush Color="#80000000"/>
+                <!-- 黑色半透明 -->
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 新增动画容器样式 -->
+    <Style x:Key="SpinnerContainerStyle" TargetType="Grid">
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
 </ResourceDictionary>

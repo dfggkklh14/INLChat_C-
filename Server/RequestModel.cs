@@ -57,4 +57,51 @@ namespace Server
             public string RequestId { get; set; }
         }
     }
+
+
+    public class ServerConfig
+    {
+        public string Host { get; set; }
+        public int Port { get; set; }
+        public DbConfig DbConfig { get; set; }
+        public LoggingConfig Logging { get; set; }
+    }
+
+    public class DbConfig
+    {
+        public string Host { get; set; }
+        public string User { get; set; }
+        public string Password { get; set; }
+        public string Database { get; set; }
+        public string Charset { get; set; }
+        public string Collation { get; set; }
+    }
+
+    public class LoggingConfig
+    {
+        public string Level { get; set; }
+        public string Format { get; set; }
+    }
+
+    public class UploadSession
+    {
+        public string FilePath { get; set; }
+        public long TotalSize { get; set; }
+        public long ReceivedSize { get; set; }
+        public string UniqueFileName { get; set; }
+    }
+
+    public class MessageData
+    {
+        public long RowId { get; set; }
+        public string Sender { get; set; }
+        public string Receiver { get; set; }
+        public string Message { get; set; }
+        public string WriteTime { get; set; }
+        public string AttachmentType { get; set; }
+        public string OriginalFileName { get; set; }
+        public long? ReplyTo { get; set; }
+        public string ReplyPreview { get; set; }
+        public string FileId { get; set; }
+    }
 }

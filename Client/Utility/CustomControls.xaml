@@ -80,4 +80,46 @@
             </Setter.Value>
         </Setter>
     </Style>
+    
+    <!-- ====== 颜色资源定义 ====== -->
+    <SolidColorBrush x:Key="ListBackgroundBrush" Color="#ffffff"/>
+    <SolidColorBrush x:Key="LineEditBorderBrush" Color="#dcdcdc"/>
+    <SolidColorBrush x:Key="LineEditFocusBorderBrush" Color="#4aa36c"/>
+
+    <!-- ====== 自定义垂直滚动条样式 ====== -->
+    <Style TargetType="ScrollBar" x:Key="CustomVerticalScrollBar">
+        <Setter Property="Width" Value="8" />
+        <Setter Property="Background" Value="{StaticResource ListBackgroundBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="{TemplateBinding Background}" Width="8" Margin="0">
+                        <!-- 确保 Track 占据整个 ScrollBar 宽度 -->
+                        <Track Name="PART_Track" IsDirectionReversed="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Track.Thumb>
+                                <Thumb x:Name="Thumb">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border Background="{TemplateBinding Background}" 
+                                                CornerRadius="2" 
+                                                HorizontalAlignment="Stretch" 
+                                                VerticalAlignment="Stretch"/>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger SourceName="Thumb" Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Thumb" Property="Background" Value="{StaticResource LineEditFocusBorderBrush}"/>
+                        </Trigger>
+                        <Trigger SourceName="Thumb" Property="IsMouseOver" Value="False">
+                            <Setter TargetName="Thumb" Property="Background" Value="{StaticResource LineEditBorderBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

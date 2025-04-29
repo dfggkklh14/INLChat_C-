@@ -16,6 +16,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using Client.Utility.Chat;
 
 namespace Client.Utility.FriendList
 {
@@ -285,7 +286,7 @@ namespace Client.Utility.FriendList
                 {
                     chatWindow.ChatArea.Visibility = Visibility.Visible;
                     chatWindow.IconImg.Visibility = Visibility.Collapsed;
-                    chatWindow.ChatArea.UpdateFriendInfo(selectedFriend);
+                    chatWindow.ChatArea.UpdateFriendInfo(selectedFriend, Link);
                     _logger.LogDebug($"ChatArea已设置为可见，IconImg已隐藏，好友: {friendUsername}, ChatArea Visibility: {chatWindow.ChatArea.Visibility}, IconImg Visibility: {chatWindow.IconImg.Visibility}");
                 }
                 else
@@ -328,8 +329,6 @@ namespace Client.Utility.FriendList
                 int pageSize = 10;
                 _logger.LogDebug($"开始获取 {friendUsername} 的聊天记录，page={page}, pageSize={pageSize}");
                 var response = await Link.GetChatHistoryPaginated(friendUsername, page, pageSize);
-                _logger.LogDebug($"聊天记录响应: {JsonConvert.SerializeObject(response)}");
-
                 if (response.ContainsKey("errors"))
                 {
                     _logger.LogError($"聊天记录解析包含错误: {JsonConvert.SerializeObject(response["errors"])}");

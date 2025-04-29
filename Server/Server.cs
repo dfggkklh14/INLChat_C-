@@ -37,56 +37,14 @@ namespace Server
         private readonly ConcurrentDictionary<(string, string), ConversationData> _conversations = new ConcurrentDictionary<(string, string), ConversationData>();
         private readonly object _clientsLock = new object();
         private readonly object _conversationsLock = new object();
-        private readonly string _baseDir = "user_data";
         private readonly int _syncInterval = 600; // 同步间隔10分钟
         private readonly byte[] _encryptionKey;
         private readonly Aes _aes;
-
-        public class ServerConfig
-        {
-            public string Host { get; set; }
-            public int Port { get; set; }
-            public DbConfig DbConfig { get; set; }
-            public LoggingConfig Logging { get; set; }
-        }
-
-        public class DbConfig
-        {
-            public string Host { get; set; }
-            public string User { get; set; }
-            public string Password { get; set; }
-            public string Database { get; set; }
-            public string Charset { get; set; }
-            public string Collation { get; set; }
-        }
-
-        public class LoggingConfig
-        {
-            public string Level { get; set; }
-            public string Format { get; set; }
-        }
-
-        private class UploadSession
-        {
-            public string FilePath { get; set; }
-            public long TotalSize { get; set; }
-            public long ReceivedSize { get; set; }
-            public string UniqueFileName { get; set; }
-        }
-
-        private class MessageData
-        {
-            public long RowId { get; set; }
-            public string Sender { get; set; }
-            public string Receiver { get; set; }
-            public string Message { get; set; }
-            public string WriteTime { get; set; }
-            public string AttachmentType { get; set; }
-            public string OriginalFileName { get; set; }
-            public long? ReplyTo { get; set; }
-            public string ReplyPreview { get; set; }
-            public string FileId { get; set; }
-        }
+        private readonly string avatarDir = Path.Combine("user_data", "avatars");
+        private readonly string fileDir = Path.Combine("user_data", "files");
+        private readonly string imgDir = Path.Combine("user_data", "images");
+        private readonly string vidDir = Path.Combine("user_data", "videos");
+        private readonly string thumDir = Path.Combine("user_data", "thumbnails");
 
         public void StartServer()
         {
@@ -360,19 +318,6 @@ namespace Server
             }
         }
 
-        private byte[] RecvAll(Socket sock, int length)
-        {
-            var data = new byte[length];
-            int received = 0;
-            while (received < length)
-            {
-                int bytesRead = sock.Receive(data, received, length - received, SocketFlags.None);
-                if (bytesRead == 0) return null;
-                received += bytesRead;
-            }
-            return data;
-        }
-
         private void SendResponse(Socket clientSock, Dictionary<string, object> response)
         {
             try
@@ -437,7 +382,6 @@ namespace Server
 
                 if (reqType == "upload_avatar" && !string.IsNullOrEmpty(fileDataB64))
                 {
-                    var avatarDir = Path.Combine(_baseDir, "avatars");
                     Directory.CreateDirectory(avatarDir);
                     var originalFileName = $"{username}_avatar_{DateTime.Now:yyyyMMddHHmmssfffffff}.jpg";
                     var avatarPath = Path.Combine(avatarDir, originalFileName);
@@ -940,20 +884,20 @@ namespace Server
             var fileDataB64 = request.ContainsKey("file_data") ? request["file_data"]?.ToString() : "";
             var totalSize = request.ContainsKey("total_size") ? Convert.ToInt64(request["total_size"]) : 0;
 
-            string uploadDir;
+            string UploadDir;
             switch (fileType)
             {
-                case "file": uploadDir = Path.Combine(_baseDir, "files"); break;
-                case "image": uploadDir = Path.Combine(_baseDir, "images"); break;
-                case "video": uploadDir = Path.Combine(_baseDir, "videos"); break;
-                default: uploadDir = Path.Combine(_baseDir, "uploads"); break;
+                case "file": UploadDir = fileDir; break;
+                case "image": UploadDir = imgDir; break;
+                case "video": UploadDir = vidDir; break;
+                default: UploadDir = fileDir; break;
             }
-            Directory.CreateDirectory(uploadDir);
+            Directory.CreateDirectory(UploadDir);
 
             if (!_uploadSessions.ContainsKey(requestId))
             {
                 var sessionFileName = $"{DateTime.Now:yyyyMMddHHmmssfffffff}_{originalFileName}";
-                var sessionFilePath = Path.Combine(uploadDir, sessionFileName);
+                var sessionFilePath = Path.Combine(UploadDir, sessionFileName);
                 _uploadSessions[requestId] = new UploadSession
                 {
                     FilePath = sessionFilePath,
@@ -976,17 +920,23 @@ namespace Server
                     session.ReceivedSize += fileData.Length;
                     _logger.LogDebug($"写入文件: {filePath}，大小: {fileData.Length}");
                     return new Dictionary<string, object>
-            {
-                { "type", "send_media" },
-                { "status", "success" },
-                { "message", "分块接收中" },
-                { "request_id", requestId }
-            };
+                    {
+                        { "type", "send_media" },
+                        { "status", "success" },
+                        { "message", "分块接收中" },
+                        { "request_id", requestId }
+                    };
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError($"文件写入失败: {ex.Message}");
-                    return new Dictionary<string, object> { { "type", "send_media" }, { "status", "error" }, { "message", "文件写入失败" }, { "request_id", requestId } };
+                    return new Dictionary<string, object>
+                    {
+                        { "type", "send_media" },
+                        { "status", "error" },
+                        { "message", "文件写入失败" },
+                        { "request_id", requestId }
+                    };
                 }
             }
             else
@@ -999,7 +949,13 @@ namespace Server
                 if (!File.Exists(filePath))
                 {
                     _logger.LogError($"文件未找到: {filePath}");
-                    return new Dictionary<string, object> { { "type", "send_media" }, { "status", "error" }, { "message", "文件保存失败，路径未找到" }, { "request_id", requestId } };
+                    return new Dictionary<string, object>
+                    {
+                        { "type", "send_media" },
+                        { "status", "error" },
+                        { "message", "文件保存失败，路径未找到" },
+                        { "request_id", requestId }
+                    };
                 }
 
                 if (fileType == "image")
@@ -1007,10 +963,10 @@ namespace Server
                     try
                     {
                         using var image = Image.FromFile(filePath);
-                        using var thumbnail = image.GetThumbnailImage(350, 350, () => false, IntPtr.Zero);
-                        var thumbnailFilename = $"thumb_{uniqueFileName}";
-                        thumbnailPath = Path.Combine(uploadDir, thumbnailFilename);
-                        thumbnail.Save(thumbnailPath, image.RawFormat);
+                        using var thumbnail = image.GetThumbnailImage(200, 300, () => false, IntPtr.Zero);
+                        var thumbnailFilename = $"thumb_{uniqueFileName}.jpg"; // 强制为 .jpg
+                        thumbnailPath = Path.Combine(UploadDir, thumbnailFilename);
+                        thumbnail.Save(thumbnailPath, ImageFormat.Jpeg); // 固定保存为 JPEG
                         _logger.LogDebug($"生成图片缩略图: {thumbnailPath}");
                         thumbnailDataB64 = Convert.ToBase64String(File.ReadAllBytes(thumbnailPath));
                         if (!File.Exists(thumbnailPath))
@@ -1031,12 +987,12 @@ namespace Server
                         if (collection.Any())
                         {
                             var frame = collection[0]; // 取第一帧
-                            frame.Resize(350, 350);
-                            var thumbnailFilename = $"thumb_{uniqueFileName}.jpg";
-                            thumbnailPath = Path.Combine(uploadDir, thumbnailFilename);
+                            frame.Resize(200, 300);
+                            var thumbnailFilename = $"thumb_{uniqueFileName}.jpg"; // 保持 .jpg
+                            thumbnailPath = Path.Combine(UploadDir, thumbnailFilename);
+                            frame.Format = MagickFormat.Jpeg; // 显式设置为 JPEG
                             frame.Write(thumbnailPath);
                             _logger.LogDebug($"生成视频缩略图: {thumbnailPath}");
-
                             duration = 0; // 需实现视频时长获取逻辑
                             thumbnailDataB64 = Convert.ToBase64String(File.ReadAllBytes(thumbnailPath));
                             if (!File.Exists(thumbnailPath))
@@ -1067,18 +1023,24 @@ namespace Server
 
                 using var conn = GetDbConnection();
                 if (conn == null)
-                    return new Dictionary<string, object> { { "type", "send_media" }, { "status", "error" }, { "message", "数据库连接失败" }, { "request_id", requestId } };
+                    return new Dictionary<string, object>
+                    {
+                        { "type", "send_media" },
+                        { "status", "error" },
+                        { "message", "数据库连接失败" },
+                        { "request_id", requestId }
+                    };
 
                 try
                 {
                     var currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                     using var cmd = new MySqlCommand(@"
-                INSERT INTO messages (sender, receiver, message, write_time, attachment_type, attachment_path, 
-                                    original_file_name, thumbnail_path, file_size, duration, reply_to, 
-                                    reply_preview, file_id)
-                VALUES (@sender, @receiver, @message, @write_time, @attachment_type, @attachment_path, 
-                        @original_file_name, @thumbnail_path, @file_size, @duration, @reply_to, 
-                        @reply_preview, @file_id)", conn);
+                        INSERT INTO messages (sender, receiver, message, write_time, attachment_type, attachment_path, 
+                                            original_file_name, thumbnail_path, file_size, duration, reply_to, 
+                                            reply_preview, file_id)
+                        VALUES (@sender, @receiver, @message, @write_time, @attachment_type, @attachment_path, 
+                                @original_file_name, @thumbnail_path, @file_size, @duration, @reply_to, 
+                                @reply_preview, @file_id)", conn);
                     cmd.Parameters.AddWithValue("@sender", fromUser);
                     cmd.Parameters.AddWithValue("@receiver", toUser);
                     cmd.Parameters.AddWithValue("@message", message);
@@ -1120,24 +1082,24 @@ namespace Server
                     }
 
                     var pushResponse = new Dictionary<string, object>
-            {
-                { "type", "new_media" },
-                { "status", "success" },
-                { "from", fromUser },
-                { "to", toUser },
-                { "message", message },
-                { "original_file_name", originalFileName },
-                { "file_type", fileType },
-                { "file_id", uniqueFileName },
-                { "write_time", currentTime },
-                { "file_size", fileSize },
-                { "duration", duration },
-                { "reply_to", replyTo },
-                { "reply_preview", replyPreview },
-                { "rowid", rowId },
-                { "conversations", conversations },
-                { "thumbnail_data", fileType == "image" || fileType == "video" ? thumbnailDataB64 : "" }
-            };
+                    {
+                        { "type", "new_media" },
+                        { "status", "success" },
+                        { "from", fromUser },
+                        { "to", toUser },
+                        { "message", message },
+                        { "original_file_name", originalFileName },
+                        { "file_type", fileType },
+                        { "file_id", uniqueFileName },
+                        { "write_time", currentTime },
+                        { "file_size", fileSize },
+                        { "duration", duration },
+                        { "reply_to", replyTo },
+                        { "reply_preview", replyPreview },
+                        { "rowid", rowId },
+                        { "conversations", conversations },
+                        { "thumbnail_data", fileType == "image" || fileType == "video" ? thumbnailDataB64 : "" }
+                    };
                     lock (_clientsLock)
                     {
                         if (_clients.TryGetValue(toUser, out var client))
@@ -1146,26 +1108,32 @@ namespace Server
 
                     _uploadSessions.TryRemove(requestId, out _);
                     return new Dictionary<string, object>
-            {
-                { "type", "send_media" },
-                { "status", "success" },
-                { "message", $"{fileType} 已发送给 {toUser}" },
-                { "request_id", requestId },
-                { "file_id", uniqueFileName },
-                { "write_time", currentTime },
-                { "duration", duration },
-                { "rowid", rowId },
-                { "reply_to", replyTo },
-                { "reply_preview", replyPreview },
-                { "text_message", message },
-                { "conversations", conversations },
-                { "thumbnail_data", fileType == "image" || fileType == "video" ? thumbnailDataB64 : "" }
-            };
+                    {
+                        { "type", "send_media" },
+                        { "status", "success" },
+                        { "message", $"{fileType} 已发送给 {toUser}" },
+                        { "request_id", requestId },
+                        { "file_id", uniqueFileName },
+                        { "write_time", currentTime },
+                        { "duration", duration },
+                        { "rowid", rowId },
+                        { "reply_to", replyTo },
+                        { "reply_preview", replyPreview },
+                        { "text_message", message },
+                        { "conversations", conversations },
+                        { "thumbnail_data", fileType == "image" || fileType == "video" ? thumbnailDataB64 : "" }
+                    };
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError($"保存媒体消息失败: {ex.Message}");
-                    return new Dictionary<string, object> { { "type", "send_media" }, { "status", "error" }, { "message", "保存失败" }, { "request_id", requestId } };
+                    return new Dictionary<string, object>
+                    {
+                        { "type", "send_media" },
+                        { "status", "error" },
+                        { "message", "保存失败" },
+                        { "request_id", requestId }
+                    };
                 }
             }
         }
@@ -1875,12 +1843,12 @@ namespace Server
                 {
                     _logger.LogError($"无效的 download_type: {downloadType}");
                     SendResponse(clientSock, new Dictionary<string, object>
-            {
-                { "type", "download_media" },
-                { "status", "error" },
-                { "message", "无效的 download_type" },
-                { "request_id", requestId }
-            });
+    {
+        { "type", "download_media" },
+        { "status", "error" },
+        { "message", "无效的 download_type" },
+        { "request_id", requestId }
+    });
                     return;
                 }
 
@@ -1904,12 +1872,12 @@ namespace Server
                 {
                     _logger.LogError("未提供有效的文件ID");
                     SendResponse(clientSock, new Dictionary<string, object>
-            {
-                { "type", "download_media" },
-                { "status", "error" },
-                { "message", "未提供文件ID" },
-                { "request_id", requestId }
-            });
+    {
+        { "type", "download_media" },
+        { "status", "error" },
+        { "message", "未提供文件ID" },
+        { "request_id", requestId }
+    });
                     return;
                 }
 
@@ -1922,12 +1890,12 @@ namespace Server
                 {
                     _logger.LogError("数据库连接失败");
                     SendResponse(clientSock, new Dictionary<string, object>
-            {
-                { "type", "download_media" },
-                { "status", "error" },
-                { "message", "数据库连接失败" },
-                { "request_id", requestId }
-            });
+    {
+        { "type", "download_media" },
+        { "status", "error" },
+        { "message", "数据库连接失败" },
+        { "request_id", requestId }
+    });
                     return;
                 }
 
@@ -1943,9 +1911,8 @@ namespace Server
                         }
                         else
                         {
-                            cmd.CommandText = "SELECT attachment_path FROM messages WHERE file_id = @fileId AND attachment_type = @type";
+                            cmd.CommandText = "SELECT thumbnail_path FROM messages WHERE file_id = @fileId";
                             cmd.Parameters.AddWithValue("@fileId", fileId);
-                            cmd.Parameters.AddWithValue("@type", downloadType);
                         }
 
                         using var reader = cmd.ExecuteReader();
@@ -1970,13 +1937,13 @@ namespace Server
                     {
                         _logger.LogError($"查询文件失败: {fileId}, 错误: {ex.Message}");
                         SendResponse(clientSock, new Dictionary<string, object>
-                {
-                    { "type", "download_media" },
-                    { "status", "error" },
-                    { "message", ex.Message },
-                    { "file_id", fileId },
-                    { "request_id", requestId }
-                });
+        {
+            { "type", "download_media" },
+            { "status", "error" },
+            { "message", ex.Message },
+            { "file_id", fileId },
+            { "request_id", requestId }
+        });
                     }
                 }
 
@@ -1984,16 +1951,17 @@ namespace Server
                 if (request.ContainsKey("file_ids") && !isSingleRequest)
                 {
                     var initResp = new Dictionary<string, object>
-            {
-                { "type", "download_media" },
-                { "status", "success" },
-                { "message", "下载初始化" },
-                { "request_id", requestId },
-                { "file_sizes", fileSizes },
-                { "file_checksums", fileChecksums }
-            };
+    {
+        { "type", "download_media" },
+        { "status", "success" },
+        { "message", "下载初始化" },
+        { "request_id", requestId },
+        { "file_sizes", fileSizes },
+        { "file_checksums", fileChecksums }
+    };
                     SendResponse(clientSock, initResp);
                     _logger.LogDebug($"已发送初始化响应: files=[{string.Join(", ", filePaths.Keys)}]");
+                    return;
                 }
 
                 // —— Step 6. 一次性下载 ——
@@ -2005,15 +1973,15 @@ namespace Server
                         var path = kv.Value;
                         var data = File.ReadAllBytes(path);
                         SendResponse(clientSock, new Dictionary<string, object>
-                {
-                    { "type", "download_media" },
-                    { "status", "success" },
-                    { "file_id", id },
-                    { "file_size", fileSizes[id] },
-                    { "file_data", Convert.ToBase64String(data) },
-                    { "is_complete", true },
-                    { "request_id", requestId }
-                });
+        {
+            { "type", "download_media" },
+            { "status", "success" },
+            { "file_id", id },
+            { "file_size", fileSizes[id] },
+            { "file_data", Convert.ToBase64String(data) },
+            { "is_complete", true },
+            { "request_id", requestId }
+        });
                         _logger.LogDebug($"一次性发送文件: {id}, size={data.Length}");
                     }
                     return;
@@ -2025,12 +1993,12 @@ namespace Server
                 {
                     _logger.LogError("分块请求缺少或无效 offset");
                     SendResponse(clientSock, new Dictionary<string, object>
-            {
-                { "type", "download_media" },
-                { "status", "error" },
-                { "message", "分块请求缺少或无效 offset" },
-                { "request_id", requestId }
-            });
+    {
+        { "type", "download_media" },
+        { "status", "error" },
+        { "message", "分块请求缺少或无效 offset" },
+        { "request_id", requestId }
+    });
                     return;
                 }
 
@@ -2039,12 +2007,12 @@ namespace Server
                 {
                     _logger.LogError("分块下载只支持单文件");
                     SendResponse(clientSock, new Dictionary<string, object>
-            {
-                { "type", "download_media" },
-                { "status", "error" },
-                { "message", "分块下载只支持单文件" },
-                { "request_id", requestId }
-            });
+    {
+        { "type", "download_media" },
+        { "status", "error" },
+        { "message", "分块下载只支持单文件" },
+        { "request_id", requestId }
+    });
                     return;
                 }
 
@@ -2058,28 +2026,28 @@ namespace Server
                 bool done = offset + read >= totalSize;
 
                 SendResponse(clientSock, new Dictionary<string, object>
-        {
-            { "type", "download_media" },
-            { "status", "success" },
-            { "file_id", singleFileId },
-            { "file_size", totalSize },
-            { "offset", offset },
-            { "file_data", read > 0 ? Convert.ToBase64String(buffer, 0, read) : string.Empty },
-            { "is_complete", done },
-            { "request_id", requestId }
-        });
+                {
+                    { "type", "download_media" },
+                    { "status", "success" },
+                    { "file_id", singleFileId },
+                    { "file_size", totalSize },
+                    { "offset", offset },
+                    { "file_data", read > 0 ? Convert.ToBase64String(buffer, 0, read) : string.Empty },
+                    { "is_complete", done },
+                    { "request_id", requestId }
+                });
                 _logger.LogDebug($"分块发送: file_id={singleFileId}, offset={offset}, bytes={read}, is_complete={done}");
             }
             catch (Exception ex)
             {
                 _logger.LogError($"处理 DownloadMedia 失败: {ex.Message}");
                 SendResponse(clientSock, new Dictionary<string, object>
-        {
-            { "type", "download_media" },
-            { "status", "error" },
-            { "message", $"下载请求失败: {ex.Message}" },
-            { "request_id", requestId }
-        });
+                {
+                    { "type", "download_media" },
+                    { "status", "error" },
+                    { "message", $"下载请求失败: {ex.Message}" },
+                    { "request_id", requestId }
+                });
             }
         }
 

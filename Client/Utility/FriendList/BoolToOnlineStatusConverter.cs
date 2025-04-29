@@ -2,7 +2,7 @@
 using System.Globalization;
 using System.Windows.Data;
 
-namespace Client.Utility
+namespace Client.Utility.FriendList
 {
     public class BoolToOnlineStatusConverter : IValueConverter
     {

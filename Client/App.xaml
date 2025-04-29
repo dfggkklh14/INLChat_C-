@@ -6,6 +6,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/Client;component/Utility/CustomControls.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/Client;component/Utility/UtilityResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
             <!-- 保留原有的 TextBlock 样式 -->
             <Style TargetType="TextBlock">
