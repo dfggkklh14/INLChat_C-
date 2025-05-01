@@ -15,6 +15,8 @@
         <local:MessageAndAttachmentToVisibilityConverter x:Key="MessageVisibilityConverter" />
         <local:ReplyToVisibilityConverter x:Key="ReplyVisibilityConverter" />
         <local:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVisibilityConverter" />
+        <!-- 新增转换器：检查图片路径是否有效 -->
+        <local:ImagePathToVisibilityConverter x:Key="ImagePathToVisibilityConverter" />
         <!-- 时间戳格式化转换器 -->
         <local:TimeStampConverter x:Key="TimeStampConverter" />
         <!-- 转换器：IsCurrentUser 到颜色、三角形点和对齐方式 -->
@@ -28,7 +30,7 @@
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="8"/>
-            <ColumnDefinition/>
+            <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="8"/>
         </Grid.ColumnDefinitions>
 
@@ -84,13 +86,29 @@
                     </MultiBinding>
                 </TextBox.Visibility>
             </TextBox>
-            <Image x:Name="ThumbnailImage"
-                   Grid.Row="1" 
-                   Margin="3,3,3,0"
-                   Source="{Binding ThumbnailLocalPath, FallbackValue=/Utility/4_avatar_20250321190730799295_1.jpg}" 
-                   Stretch="UniformToFill"
-                   Loaded="ThumbnailImageLoaded"
-                   Visibility="{Binding AttachmentType, Converter={StaticResource ImageVisibilityConverter}}"/>
+            <!-- 图片显示区域 -->
+            <Grid Grid.Row="1" Margin="3,3,3,0"
+                  Visibility="{Binding AttachmentType, Converter={StaticResource ImageVisibilityConverter}}">
+                <!-- 实际图片 -->
+                <Image x:Name="ThumbnailImage"
+                       Source="{Binding ThumbnailLocalPath, FallbackValue=/Utility/4_avatar_20250321190730799295_1.jpg}" 
+                       Stretch="Uniform"
+                       Loaded="ThumbnailImageLoaded">
+                    <Image.Visibility>
+                        <Binding Path="ThumbnailLocalPath" Converter="{StaticResource ImagePathToVisibilityConverter}" ConverterParameter="Image"/>
+                    </Image.Visibility>
+                </Image>
+                <!-- 占位符：当图片路径无效时显示 -->
+                <Grid x:Name="PlaceholderGrid" Width="200" Height="300">
+                    <Grid.Visibility>
+                        <Binding Path="ThumbnailLocalPath" Converter="{StaticResource ImagePathToVisibilityConverter}" ConverterParameter="Placeholder"/>
+                    </Grid.Visibility>
+                    <Rectangle Fill="#80000000" RadiusX="12" RadiusY="12"/>
+                    <Ellipse Style="{StaticResource LoadingSpinnerStyle}"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"/>
+                </Grid>
+            </Grid>
             <Button x:Name="PlayButton" 
                     Grid.Row="1" 
                     Margin="3,3,3,0" 

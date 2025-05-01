@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
@@ -66,11 +67,17 @@ namespace Client.Utility.Chat
                 if (avatarControl != null)
                 {
                     avatarControl.Link = link;
+                    _link.ThumbnailDownloaded -= OnThumbnailDownloaded;
                     _logger.LogDebug("已为 FriendAvatarControl 设置 Link");
                 }
                 else
                 {
                     _logger.LogWarning("未找到 FriendAvatarControl");
+                }
+                _link = link;
+                if (_link != null)
+                {
+                    _link.ThumbnailDownloaded += OnThumbnailDownloaded; // 订阅事件
                 }
 
                 link.NewMessageReceived += OnNewMessageReceived;
@@ -79,6 +86,19 @@ namespace Client.Utility.Chat
 
                 LoadInitialChatHistory(friend.Username);
             }
+        }
+
+        private void OnThumbnailDownloaded(string fileId, string savePath)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                var entry = _chatEntries.FirstOrDefault(e => e.FileId == fileId);
+                if (entry != null)
+                {
+                    entry.ThumbnailLocalPath = savePath;
+                    _logger.LogDebug($"更新缩略图路径: FileId={fileId}");
+                }
+            });
         }
 
         // 生成缩略图
@@ -92,11 +112,33 @@ namespace Client.Utility.Chat
 
                 using (System.Drawing.Image image = System.Drawing.Image.FromFile(originalImagePath))
                 {
-                    using (System.Drawing.Image thumbnail = image.GetThumbnailImage(200, 300, () => false, IntPtr.Zero))
+                    int originalWidth = image.Width;
+                    int originalHeight = image.Height;
+
+                    // 计算缩放比例（短边变成 200）
+                    double scale = originalWidth < originalHeight
+                        ? 200.0 / originalWidth
+                        : 200.0 / originalHeight;
+
+                    int targetWidth = (int)(originalWidth * scale);
+                    int targetHeight = (int)(originalHeight * scale);
+
+                    using (Bitmap thumbnail = new Bitmap(targetWidth, targetHeight))
                     {
+                        using (Graphics g = Graphics.FromImage(thumbnail))
+                        {
+                            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+
+                            g.DrawImage(image, 0, 0, targetWidth, targetHeight);
+                        }
+
                         thumbnail.Save(thumbnailPath, ImageFormat.Jpeg);
                     }
                 }
+
                 _logger.LogDebug($"缩略图生成成功: {thumbnailPath}");
                 return thumbnailPath;
             }

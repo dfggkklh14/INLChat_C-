@@ -10,6 +10,47 @@ namespace Client.Utility
     public static class CacheHelper
     {
         private static readonly ILogger _logger = NullLogger.Instance;
+        private static string _cachePath = null;
+        private static bool _cachePathLoaded = false;
+
+        /// <summary>
+        /// 获取缓存路径（优先 config.json，否则默认 Chat_DATA）
+        /// </summary>
+        private static string GetCachePath()
+        {
+            if (_cachePathLoaded)
+                return _cachePath;
+
+            try
+            {
+                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                if (File.Exists(configPath))
+                {
+                    string json = File.ReadAllText(configPath);
+                    var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+                    if (config != null && config.TryGetValue("cache_path", out var configuredPath) && !string.IsNullOrWhiteSpace(configuredPath))
+                    {
+                        _cachePath = configuredPath;
+                        _logger.LogDebug($"从 config.json 读取 cache_path: {_cachePath}");
+                    }
+                }
+                if (string.IsNullOrEmpty(_cachePath))
+                {
+                    _cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                    _logger.LogDebug($"未定义 cache_path，使用默认路径: {_cachePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"读取缓存路径失败: {ex.Message}");
+                _cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+            }
+            finally
+            {
+                _cachePathLoaded = true;
+            }
+            return _cachePath;
+        }
 
         /// <summary>
         /// 获取头像文件的路径，如果文件存在则返回完整路径，否则返回 null。
@@ -27,33 +68,10 @@ namespace Client.Utility
 
             try
             {
-                // 从 config.json 读取 cache_path
-                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-                string cachePath = null;
-
-                if (File.Exists(configPath))
-                {
-                    string json = File.ReadAllText(configPath);
-                    var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
-                    if (config != null && config.TryGetValue("cache_path", out var configuredPath))
-                    {
-                        cachePath = configuredPath;
-                        _logger.LogDebug($"从 config.json 读取 cache_path: {cachePath}");
-                    }
-                }
-
-                // 如果未定义 cache_path，使用默认路径 Chat_DATA
-                if (string.IsNullOrEmpty(cachePath))
-                {
-                    cachePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
-                    _logger.LogDebug($"未定义 cache_path，使用默认路径: {cachePath}");
-                }
-
-                // 构建 Avatars 文件夹路径
+                string cachePath = GetCachePath();
                 string avatarsPath = Path.Combine(cachePath, "Avatars");
                 string avatarPath = Path.Combine(avatarsPath, avatarId);
 
-                // 检查头像文件是否存在
                 if (File.Exists(avatarPath))
                 {
                     _logger.LogDebug($"找到头像文件: {avatarPath}");

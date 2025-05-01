@@ -963,11 +963,22 @@ namespace Server
                     try
                     {
                         using var image = Image.FromFile(filePath);
-                        using var thumbnail = image.GetThumbnailImage(200, 300, () => false, IntPtr.Zero);
-                        var thumbnailFilename = $"thumb_{uniqueFileName}.jpg"; // 强制为 .jpg
+                        int originalWidth = image.Width;
+                        int originalHeight = image.Height;
+
+                        double scale = (originalWidth < originalHeight)
+                            ? 200.0 / originalWidth
+                            : 200.0 / originalHeight;
+
+                        int targetWidth = (int)(originalWidth * scale);
+                        int targetHeight = (int)(originalHeight * scale);
+
+                        using var resized = new Bitmap(image, targetWidth, targetHeight);
+                        var thumbnailFilename = $"thumb_{uniqueFileName}.jpg";
                         thumbnailPath = Path.Combine(UploadDir, thumbnailFilename);
-                        thumbnail.Save(thumbnailPath, ImageFormat.Jpeg); // 固定保存为 JPEG
+                        resized.Save(thumbnailPath, ImageFormat.Jpeg);
                         _logger.LogDebug($"生成图片缩略图: {thumbnailPath}");
+
                         thumbnailDataB64 = Convert.ToBase64String(File.ReadAllBytes(thumbnailPath));
                         if (!File.Exists(thumbnailPath))
                             _logger.LogError($"缩略图文件未生成: {thumbnailPath}");
@@ -987,17 +998,35 @@ namespace Server
                         if (collection.Any())
                         {
                             var frame = collection[0]; // 取第一帧
-                            frame.Resize(200, 300);
-                            var thumbnailFilename = $"thumb_{uniqueFileName}.jpg"; // 保持 .jpg
+                            uint width = frame.Width;
+                            uint height = frame.Height;
+
+                            int targetShort = 200;
+                            int newWidth, newHeight;
+
+                            if (width <= height)
+                            {
+                                newWidth = targetShort;
+                                newHeight = (int)(height * (targetShort / (double)width));
+                            }
+                            else
+                            {
+                                newHeight = targetShort;
+                                newWidth = (int)(width * (targetShort / (double)height));
+                            }
+
+                            frame.Resize((uint)newWidth, (uint)newHeight); // ✅ 强制转换为 uint
+
+                            var thumbnailFilename = $"thumb_{uniqueFileName}.jpg";
                             thumbnailPath = Path.Combine(UploadDir, thumbnailFilename);
-                            frame.Format = MagickFormat.Jpeg; // 显式设置为 JPEG
+                            frame.Format = MagickFormat.Jpeg;
                             frame.Write(thumbnailPath);
+
                             _logger.LogDebug($"生成视频缩略图: {thumbnailPath}");
-                            duration = 0; // 需实现视频时长获取逻辑
                             thumbnailDataB64 = Convert.ToBase64String(File.ReadAllBytes(thumbnailPath));
-                            if (!File.Exists(thumbnailPath))
-                                _logger.LogError($"缩略图文件未生成: {thumbnailPath}");
+                            duration = 0; // 后面可以再补
                         }
+
                         else
                         {
                             _logger.LogError($"视频文件无有效帧: {filePath}");
@@ -1827,32 +1856,35 @@ namespace Server
         private void DownloadMedia(Dictionary<string, object> request, Socket clientSock)
         {
             string requestId = request.ContainsKey("request_id") ? request["request_id"]?.ToString() : null;
+            var delayInterval = TimeSpan.FromMilliseconds(0); // 模拟延迟：1.5秒
+
             try
             {
-                // —— Step 1. 安全解析 single_request ——
+                // —— Step 1. 安全解析 single_request —— 
                 request.TryGetValue("single_request", out object singleReqObj);
                 bool isSingleRequest = false;
                 if (singleReqObj != null && bool.TryParse(singleReqObj.ToString(), out bool tmp))
                     isSingleRequest = tmp;
                 _logger.LogDebug($"解析 single_request: value={(singleReqObj ?? "null")}, isSingleRequest={isSingleRequest}");
 
-                // —— Step 2. 验证 download_type ——
+                // —— Step 2. 验证 download_type —— 
                 string downloadType = request.ContainsKey("download_type") ? request["download_type"]?.ToString() : null;
                 if (string.IsNullOrEmpty(downloadType) ||
                     !new HashSet<string> { "avatar", "image", "video", "file", "thumbnail" }.Contains(downloadType))
                 {
                     _logger.LogError($"无效的 download_type: {downloadType}");
+                    Thread.Sleep(delayInterval);
                     SendResponse(clientSock, new Dictionary<string, object>
-    {
-        { "type", "download_media" },
-        { "status", "error" },
-        { "message", "无效的 download_type" },
-        { "request_id", requestId }
-    });
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "无效的 download_type" },
+                { "request_id", requestId }
+            });
                     return;
                 }
 
-                // —— Step 3. 解析 file_ids / file_id ——
+                // —— Step 3. 解析 file_ids / file_id —— 
                 List<string> fileIds = new();
                 request.TryGetValue("file_ids", out object fidsObj);
                 if (fidsObj != null)
@@ -1871,17 +1903,18 @@ namespace Server
                 if (!fileIds.Any())
                 {
                     _logger.LogError("未提供有效的文件ID");
+                    Thread.Sleep(delayInterval);
                     SendResponse(clientSock, new Dictionary<string, object>
-    {
-        { "type", "download_media" },
-        { "status", "error" },
-        { "message", "未提供文件ID" },
-        { "request_id", requestId }
-    });
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "未提供文件ID" },
+                { "request_id", requestId }
+            });
                     return;
                 }
 
-                // —— Step 4. 查询数据库拿到路径、大小、MD5 ——
+                // —— Step 4. 查询数据库拿到路径、大小、MD5 —— 
                 var filePaths = new Dictionary<string, string>();
                 var fileSizes = new Dictionary<string, long>();
                 var fileChecksums = new Dictionary<string, string>();
@@ -1889,13 +1922,14 @@ namespace Server
                 if (conn == null)
                 {
                     _logger.LogError("数据库连接失败");
+                    Thread.Sleep(delayInterval);
                     SendResponse(clientSock, new Dictionary<string, object>
-    {
-        { "type", "download_media" },
-        { "status", "error" },
-        { "message", "数据库连接失败" },
-        { "request_id", requestId }
-    });
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "数据库连接失败" },
+                { "request_id", requestId }
+            });
                     return;
                 }
 
@@ -1936,35 +1970,37 @@ namespace Server
                     catch (Exception ex)
                     {
                         _logger.LogError($"查询文件失败: {fileId}, 错误: {ex.Message}");
+                        Thread.Sleep(delayInterval);
                         SendResponse(clientSock, new Dictionary<string, object>
-        {
-            { "type", "download_media" },
-            { "status", "error" },
-            { "message", ex.Message },
-            { "file_id", fileId },
-            { "request_id", requestId }
-        });
+                {
+                    { "type", "download_media" },
+                    { "status", "error" },
+                    { "message", ex.Message },
+                    { "file_id", fileId },
+                    { "request_id", requestId }
+                });
                     }
                 }
 
-                // —— Step 5. 初始化元数据，仅批量下载且非一次性请求时发送 ——
+                // —— Step 5. 初始化元数据，仅批量下载且非一次性请求时发送 —— 
                 if (request.ContainsKey("file_ids") && !isSingleRequest)
                 {
                     var initResp = new Dictionary<string, object>
-    {
-        { "type", "download_media" },
-        { "status", "success" },
-        { "message", "下载初始化" },
-        { "request_id", requestId },
-        { "file_sizes", fileSizes },
-        { "file_checksums", fileChecksums }
-    };
+            {
+                { "type", "download_media" },
+                { "status", "success" },
+                { "message", "下载初始化" },
+                { "request_id", requestId },
+                { "file_sizes", fileSizes },
+                { "file_checksums", fileChecksums }
+            };
+                    Thread.Sleep(delayInterval);
                     SendResponse(clientSock, initResp);
                     _logger.LogDebug($"已发送初始化响应: files=[{string.Join(", ", filePaths.Keys)}]");
                     return;
                 }
 
-                // —— Step 6. 一次性下载 ——
+                // —— Step 6. 一次性下载 —— 
                 if (isSingleRequest)
                 {
                     foreach (var kv in filePaths)
@@ -1972,33 +2008,35 @@ namespace Server
                         var id = kv.Key;
                         var path = kv.Value;
                         var data = File.ReadAllBytes(path);
+                        Thread.Sleep(delayInterval);
                         SendResponse(clientSock, new Dictionary<string, object>
-        {
-            { "type", "download_media" },
-            { "status", "success" },
-            { "file_id", id },
-            { "file_size", fileSizes[id] },
-            { "file_data", Convert.ToBase64String(data) },
-            { "is_complete", true },
-            { "request_id", requestId }
-        });
+                {
+                    { "type", "download_media" },
+                    { "status", "success" },
+                    { "file_id", id },
+                    { "file_size", fileSizes[id] },
+                    { "file_data", Convert.ToBase64String(data) },
+                    { "is_complete", true },
+                    { "request_id", requestId }
+                });
                         _logger.LogDebug($"一次性发送文件: {id}, size={data.Length}");
                     }
                     return;
                 }
 
-                // —— Step 7. 分块传输 ——
+                // —— Step 7. 分块传输 —— 
                 if (!request.TryGetValue("offset", out object offObj) ||
                     !long.TryParse(offObj?.ToString(), out long offset))
                 {
                     _logger.LogError("分块请求缺少或无效 offset");
+                    Thread.Sleep(delayInterval);
                     SendResponse(clientSock, new Dictionary<string, object>
-    {
-        { "type", "download_media" },
-        { "status", "error" },
-        { "message", "分块请求缺少或无效 offset" },
-        { "request_id", requestId }
-    });
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "分块请求缺少或无效 offset" },
+                { "request_id", requestId }
+            });
                     return;
                 }
 
@@ -2006,13 +2044,14 @@ namespace Server
                 if (singleFileId == null)
                 {
                     _logger.LogError("分块下载只支持单文件");
+                    Thread.Sleep(delayInterval);
                     SendResponse(clientSock, new Dictionary<string, object>
-    {
-        { "type", "download_media" },
-        { "status", "error" },
-        { "message", "分块下载只支持单文件" },
-        { "request_id", requestId }
-    });
+            {
+                { "type", "download_media" },
+                { "status", "error" },
+                { "message", "分块下载只支持单文件" },
+                { "request_id", requestId }
+            });
                     return;
                 }
 
@@ -2025,31 +2064,34 @@ namespace Server
                 int read = fs.Read(buffer, 0, chunkSize);
                 bool done = offset + read >= totalSize;
 
+                Thread.Sleep(delayInterval);
                 SendResponse(clientSock, new Dictionary<string, object>
-                {
-                    { "type", "download_media" },
-                    { "status", "success" },
-                    { "file_id", singleFileId },
-                    { "file_size", totalSize },
-                    { "offset", offset },
-                    { "file_data", read > 0 ? Convert.ToBase64String(buffer, 0, read) : string.Empty },
-                    { "is_complete", done },
-                    { "request_id", requestId }
-                });
+        {
+            { "type", "download_media" },
+            { "status", "success" },
+            { "file_id", singleFileId },
+            { "file_size", totalSize },
+            { "offset", offset },
+            { "file_data", read > 0 ? Convert.ToBase64String(buffer, 0, read) : string.Empty },
+            { "is_complete", done },
+            { "request_id", requestId }
+        });
                 _logger.LogDebug($"分块发送: file_id={singleFileId}, offset={offset}, bytes={read}, is_complete={done}");
             }
             catch (Exception ex)
             {
                 _logger.LogError($"处理 DownloadMedia 失败: {ex.Message}");
+                Thread.Sleep(delayInterval);
                 SendResponse(clientSock, new Dictionary<string, object>
-                {
-                    { "type", "download_media" },
-                    { "status", "error" },
-                    { "message", $"下载请求失败: {ex.Message}" },
-                    { "request_id", requestId }
-                });
+        {
+            { "type", "download_media" },
+            { "status", "error" },
+            { "message", $"下载请求失败: {ex.Message}" },
+            { "request_id", requestId }
+        });
             }
         }
+
 
 
         private string ComputeMD5(string filePath)

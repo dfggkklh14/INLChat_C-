@@ -44,71 +44,60 @@ namespace Client.Function
         public string _username;
         public readonly string _thumbnailDir;
 
-        // 事件（对应 Python 的 pyqtSignal）
         public event Action<List<Dictionary<string, object>>> FriendListUpdated;
         public event Action<List<Dictionary<string, object>>, List<string>, List<int>, bool> ConversationsUpdated;
         public event Action<Dictionary<string, object>> NewMessageReceived;
         public event Action<Dictionary<string, object>> NewMediaReceived;
         public event Action<Dictionary<string, object>> RemarksUpdated;
+        public event Action<string, string> ThumbnailDownloaded;
+
 
         public Link(ILoggerFactory loggerFactory, string host = "26.102.137.22", int port = 13235)
         {
             _logger = loggerFactory.CreateLogger<Link>();
             _encryptionKey = LoadEncryptionKey();
             _config = new Dictionary<string, object>
-    {
-        { "host", host },
-        { "port", port },
-        { "retries", 5 },
-        { "delay", 2 }
-    };
+            {
+                { "host", host },
+                { "port", port },
+                { "retries", 5 },
+                { "delay", 2 }
+            };
             _isRunning = true;
             _sendLock = new SemaphoreSlim(1, 1);
-            _pendingRequests = new Dictionary<string, TaskCompletionSource<Dictionary<string, object>>>();
-            _registerRequests = new Dictionary<string, TaskCompletionSource<Dictionary<string, object>>>();
-            _lock = new SemaphoreSlim(1, 1);
-            Friends = new List<Dictionary<string, object>>();
-            UnreadMessages = new Dictionary<string, int>();
+            _pendingRequests = new();
+            _registerRequests = new();
+            _lock = new(1, 1);
+            Friends = new();
+            UnreadMessages = new();
             CurrentFriend = null;
 
-            // 从 config.json 加载缓存路径或创建默认 config.json
-            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
-            if (!File.Exists(configPath))
-            {
-                try
-                {
-                    // 创建默认配置
-                    var defaultConfig = new Dictionary<string, string>
-            {
-                { "cache_path", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA") }
-            };
-                    string defaultConfigJson = JsonConvert.SerializeObject(defaultConfig, Formatting.Indented);
-                    File.WriteAllText(configPath, defaultConfigJson);
-                    _cacheRoot = defaultConfig["cache_path"];
-                }
-                catch (Exception ex)
-                {
-                    _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
-                }
-            }
-            else
-            {
-                try
-                {
-                    string configJson = File.ReadAllText(configPath);
-                    var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(configJson);
-                    _cacheRoot = config.ContainsKey("cache_path") ? config["cache_path"] : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
-                }
-                catch (Exception ex)
-                {
-                    _cacheRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
-                }
-            }
-
+            _cacheRoot = GetCacheRoot();
             _avatarDir = Path.Combine(_cacheRoot, "avatars");
             _thumbnailDir = Path.Combine(_cacheRoot, "thumbnails");
             Directory.CreateDirectory(_avatarDir);
             Directory.CreateDirectory(_thumbnailDir);
+
+            static string GetCacheRoot()
+            {
+                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+                try
+                {
+                    if (!File.Exists(configPath))
+                    {
+                        var def = new Dictionary<string, string>
+                            { { "cache_path", Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA") } };
+                        File.WriteAllText(configPath, JsonConvert.SerializeObject(def, Formatting.Indented));
+                        return def["cache_path"];
+                    }
+                    var config = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(configPath));
+                    return config != null && config.TryGetValue("cache_path", out var path) ? path : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                }
+                catch
+                {
+                    return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Chat_DATA");
+                }
+            }
         }
 
         private byte[] LoadEncryptionKey()
@@ -738,6 +727,56 @@ namespace Client.Function
                 return;
             }
 
+            // 处理new_media消息
+            if (resp.GetValueOrDefault("type")?.ToString() == "new_media")
+            {
+                string fileId = resp.GetValueOrDefault("file_id")?.ToString();
+                string thumbnailData = resp.GetValueOrDefault("thumbnail_data")?.ToString();
+                if (!string.IsNullOrEmpty(fileId))
+                {
+                    // 预计的缩略图保存路径
+                    string thumbnailPath = Path.Combine(_thumbnailDir, fileId + ".jpg"); // 强制JPEG格式
+                                                                                         // 添加预计路径到响应
+                    resp["thumbnail_local_path"] = thumbnailPath;
+                    // 立即触发NewMediaReceived，创建气泡
+                    NewMediaReceived?.Invoke(resp);
+
+                    // 异步保存缩略图
+                    if (!string.IsNullOrEmpty(thumbnailData))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                byte[] thumbnailBytes = Convert.FromBase64String(thumbnailData);
+                                await File.WriteAllBytesAsync(thumbnailPath, thumbnailBytes);
+                                _logger.LogDebug($"保存缩略图: FileId={fileId}, Path={thumbnailPath}");
+                                OnThumbnailDownloaded(fileId, thumbnailPath); // 保存后触发UI更新
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError($"保存缩略图失败: FileId={fileId}, Error={ex.Message}");
+                            }
+                        });
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"新媒体消息缺少thumbnail_data: {JsonConvert.SerializeObject(resp)}");
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning($"新媒体消息缺少file_id: {JsonConvert.SerializeObject(resp)}");
+                    NewMediaReceived?.Invoke(resp); // 即使无fileId也触发，确保气泡创建
+                }
+            }
+            else
+            {
+                // 非媒体消息直接触发
+                NewMessageReceived?.Invoke(resp);
+            }
+
+            // 更新会话
             foreach (var friend in Friends)
             {
                 if (friend.GetValueOrDefault("username")?.ToString() == sender)
@@ -756,21 +795,14 @@ namespace Client.Function
                 }
             }
 
+            // 未读消息计数
             bool shouldIncrementUnread = sender != CurrentFriend;
             if (shouldIncrementUnread)
             {
                 UnreadMessages[sender] = UnreadMessages.GetValueOrDefault(sender, 0) + 1;
             }
 
-            FriendListUpdated?.Invoke(Friends); // 触发更新
-            if (resp.GetValueOrDefault("type")?.ToString() == "new_message")
-            {
-                NewMessageReceived?.Invoke(resp);
-            }
-            else if (resp.GetValueOrDefault("type")?.ToString() == "new_media")
-            {
-                NewMediaReceived?.Invoke(resp);
-            }
+            FriendListUpdated?.Invoke(Friends);
         }
 
         public void ClearUnreadMessages(string friend)
@@ -875,17 +907,36 @@ namespace Client.Function
             }
         }
 
+        protected virtual void OnThumbnailDownloaded(string fileId, string savePath)
+        {
+            ThumbnailDownloaded?.Invoke(fileId, savePath);
+        }
+
+        private async Task ProcessThumbnailDownloads(List<(string fileId, string savePath)> thumbnailsToDownload)
+        {
+            var results = await DownloadMedia(thumbnailsToDownload, "thumbnail");
+            foreach (var result in results)
+            {
+                if (result.GetValueOrDefault("status")?.ToString() == "success")
+                {
+                    var fileId = result.GetValueOrDefault("file_id")?.ToString();
+                    var savePath = thumbnailsToDownload.First(t => t.fileId == fileId).savePath;
+                    OnThumbnailDownloaded(fileId, savePath); // 触发事件
+                }
+            }
+        }
+
         public async Task<Dictionary<string, object>> GetChatHistoryPaginated(string friend, int page, int pageSize)
         {
             var req = new Dictionary<string, object>
-    {
-        { "type", "get_chat_history_paginated" },
-        { "username", _username },
-        { "friend", friend },
-        { "page", page },
-        { "page_size", pageSize },
-        { "request_id", Guid.NewGuid().ToString() }
-    };
+            {
+                { "type", "get_chat_history_paginated" },
+                { "username", _username },
+                { "friend", friend },
+                { "page", page },
+                { "page_size", pageSize },
+                { "request_id", Guid.NewGuid().ToString() }
+            };
 
             var resp = await SendRequest(req);
             var parsedResp = await ParseResponse(resp);
@@ -897,11 +948,11 @@ namespace Client.Function
             {
                 _logger.LogError("parsedResp['data'] 类型错误，非 List<Dictionary<string, object>>");
                 return new Dictionary<string, object>
-        {
-            { "status", "error" },
-            { "message", "聊天记录数据格式错误" },
-            { "request_id", parsedResp.GetValueOrDefault("request_id") }
-        };
+                {
+                    { "status", "error" },
+                    { "message", "聊天记录数据格式错误" },
+                    { "request_id", parsedResp.GetValueOrDefault("request_id") }
+                };
             }
             var thumbnailsToDownload = new List<(string fileId, string savePath)>();
             foreach (var entry in data)
@@ -932,16 +983,7 @@ namespace Client.Function
                 {
                     try
                     {
-                        var results = await DownloadMedia(thumbnailsToDownload, "thumbnail");
-                        foreach (var result in results)
-                        {
-                            if (result.GetValueOrDefault("status")?.ToString() != "success")
-                            {
-                                var badId = result.GetValueOrDefault("file_id")?.ToString();
-                                var reason = result.GetValueOrDefault("reason")?.ToString() ?? result.GetValueOrDefault("message");
-                                _logger.LogError($"缩略图下载失败: file_id={badId}, reason={reason}");
-                            }
-                        }
+                        await ProcessThumbnailDownloads(thumbnailsToDownload); // 调用内部方法触发事件
                     }
                     catch (Exception ex)
                     {
@@ -951,6 +993,7 @@ namespace Client.Function
             }
             return parsedResp;
         }
+
 
         public async Task<Dictionary<string, object>> SendMessage(string toUser, string message, int? replyTo = null)
         {

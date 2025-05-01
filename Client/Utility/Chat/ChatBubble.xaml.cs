@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.IO;
 
 namespace Client.Utility.Chat
 {
@@ -101,6 +102,25 @@ namespace Client.Utility.Chat
         }
     }
 
+    // 新增转换器：检查图片路径是否有效
+    public class ImagePathToVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            string path = value?.ToString();
+            string target = parameter?.ToString();
+
+            bool isValid = !string.IsNullOrEmpty(path) && File.Exists(path);
+
+            return (target == "Image" && isValid) || (target == "Placeholder" && !isValid)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotImplementedException();
+    }
+
     // 转换器：时间戳格式化
     public class TimeStampConverter : IValueConverter
     {
@@ -136,7 +156,6 @@ namespace Client.Utility.Chat
             throw new NotImplementedException();
         }
     }
-
 
     // 转换器：IsCurrentUser 到颜色（BubbleBackg 和 BubblePointer）
     public class IsCurrentUserToColorConverter : IValueConverter
@@ -183,7 +202,7 @@ namespace Client.Utility.Chat
                 : HorizontalAlignment.Left;
         }
 
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
             throw new NotImplementedException();
         }
@@ -201,7 +220,7 @@ namespace Client.Utility.Chat
                 : HorizontalAlignment.Right;
         }
 
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
             throw new NotImplementedException();
         }
@@ -223,4 +242,3 @@ namespace Client.Utility.Chat
         }
     }
 }
-
